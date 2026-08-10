@@ -1,0 +1,30 @@
+[Unit]
+Description=AR Viewer — Beamline PV Browser
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=beamline
+Group=beamline
+
+# ── Adjust these two paths to match your installation ──
+WorkingDirectory=/opt/arviewer
+ExecStart=/opt/anaconda3/bin/python app.py
+
+Restart=always
+RestartSec=5
+
+# Environment — edit archiver IPs/ports if they differ
+Environment="PORT=8080"
+Environment="ARCHIVER_MGMT_URL=http://164.54.169.92:17665"
+Environment="ARCHIVER_RETRIEVAL_URL=http://164.54.169.92:17668"
+Environment="CONFIG_PATH=/opt/arviewer/config/overrides.json"
+
+# Logging goes to journald (use: journalctl -u arviewer -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arviewer
+
+[Install]
+WantedBy=multi-user.target
