@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
     "stationLabels": {},
     "deviceTypes": {},
     "hiddenPVs": [],
-    "viewerBaseUrl": f"{ARCHIVER_MGMT_URL}/viewer/index.html",
+    "viewerBaseUrl": "http://164.54.169.92:17668/retrieval/ui/viewer/archViewer.html",
     "viewerUrlFormat": "query",
 }
 
@@ -33,9 +33,33 @@ def load_config() -> dict:
 
 @app.get("/api/pvs")
 async def get_all_pvs():
+    """Return every archived PV. AA defaults to 500; pass limit=999999 to get all."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.get(
+                f"{ARCHIVER_MGMT_URL}/mgmt/bpl/getAllPVs",
+                params={"limit": 999999},
+            )
+            r.raise_for_status()
+            return r.json()
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Cannot reach archiver: {exc}")
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+
+
+ARCHIVER_RETRIEVAL_URL = os.getenv("ARCHIVER_RETRIEVAL_URL", "http://164.54.169.92:17668")
+
+
+@app.get("/api/search")
+async def search_pvs(pattern: str, limit: int = 5000):
+    """Search archived PVs by glob pattern via the retrieval BPL endpoint."""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(f"{ARCHIVER_MGMT_URL}/mgmt/bpl/getAllPVs")
+            r = await client.get(
+                f"{ARCHIVER_RETRIEVAL_URL}/retrieval/bpl/getMatchingPVs",
+                params={"pv": pattern, "limit": limit},
+            )
             r.raise_for_status()
             return r.json()
     except httpx.RequestError as exc:

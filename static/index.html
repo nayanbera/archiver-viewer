@@ -5,26 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AR Viewer — Beamline PV Browser</title>
 
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/vendor/react.min.js"></script>
+  <script src="/vendor/react-dom.min.js"></script>
+  <script src="/vendor/babel.min.js"></script>
+  <script src="/vendor/tailwind.js"></script>
 
   <style>
     html, body, #root { height: 100%; margin: 0; overflow: hidden; }
-    input[type="checkbox"]:indeterminate { accent-color: #3b82f6; opacity: 0.7; }
+    input[type="checkbox"]:indeterminate { accent-color: #3b82f6; opacity: 0.6; }
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
-    .pv-mono { font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace; }
-    .truncate-pv { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .pv-mono { font-family: 'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,monospace; }
+    .truncate-pv { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   </style>
 </head>
-<body class="h-full bg-slate-900 text-slate-200">
+<body class="h-full bg-gray-50 text-gray-900">
   <div id="root" class="h-full"></div>
+  <div id="boot-error" style="display:none;position:fixed;top:0;left:0;right:0;background:#7f1d1d;color:#fca5a5;padding:16px;font-family:monospace;font-size:13px;z-index:9999;white-space:pre-wrap;"></div>
 
-  <script type="text/babel" data-presets="react">
+  <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var el = document.getElementById('boot-error');
+      el.style.display = 'block';
+      el.textContent = 'JS Error: ' + msg + '\n' + (err ? err.stack : '') + '\nAt: ' + src + ':' + line;
+    };
+  </script>
+
+  <script type="text/babel">
     const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
     // ── Utilities ────────────────────────────────────────────────────────────
@@ -72,11 +81,11 @@
     }
 
     function buildViewerUrl(pvNames, from, to, cfg = {}) {
-      const base   = cfg.viewerBaseUrl  || 'http://164.54.169.92:17665/viewer/index.html';
+      const base   = cfg.viewerBaseUrl  || 'http://164.54.169.92:17668/retrieval/ui/viewer/archViewer.html';
       const format = cfg.viewerUrlFormat || 'query';
       const pvStr  = pvNames.map(p => `pv=${encodeURIComponent(p)}`).join('&');
       const fromS  = (from instanceof Date ? from : new Date(from)).toISOString();
-      const toS    = (to   instanceof Date ? to   : new Date(to)  ).toISOString();
+      const toS    = (to   instanceof Date ? to   : new Date(to)).toISOString();
       const params = `${pvStr}&from=${encodeURIComponent(fromS)}&to=${encodeURIComponent(toS)}`;
       return format === 'hash' ? `${base}#${params}` : `${base}?${params}`;
     }
@@ -89,7 +98,7 @@
 
     // ── Checkbox with indeterminate support ──────────────────────────────────
 
-    function Tri({ checked, partial, onChange, className = '' }) {
+    function Tri({ checked, partial, onChange }) {
       const ref = useRef(null);
       useEffect(() => {
         if (ref.current) ref.current.indeterminate = partial && !checked;
@@ -97,7 +106,7 @@
       return (
         <input ref={ref} type="checkbox" checked={checked} onChange={onChange}
           onClick={e => e.stopPropagation()}
-          className={`w-3.5 h-3.5 rounded cursor-pointer accent-blue-500 shrink-0 ${className}`} />
+          className="w-3.5 h-3.5 rounded cursor-pointer accent-blue-500 shrink-0" />
       );
     }
 
@@ -106,12 +115,12 @@
     function PVItem({ pv, selected, onToggle, label }) {
       return (
         <div
-          onClick={() => onToggle(pv)}
-          className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer hover:bg-slate-700/60 group
-            ${selected ? 'bg-blue-900/25' : ''}`}
+          onClick={onToggle}
+          className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer
+            hover:bg-blue-50 group ${selected ? 'bg-blue-50' : ''}`}
         >
-          <Tri checked={selected} partial={false} onChange={() => onToggle(pv)} />
-          <span className="pv-mono truncate-pv text-xs text-slate-300 group-hover:text-slate-100"
+          <Tri checked={selected} partial={false} onChange={onToggle} />
+          <span className="pv-mono truncate-pv text-xs text-gray-600 group-hover:text-gray-900"
                 title={pv}>
             {label || pv}
           </span>
@@ -122,13 +131,14 @@
     // ── Device node ──────────────────────────────────────────────────────────
 
     const TYPE_BADGE = {
-      motor:  { cls: 'bg-blue-700/80 text-blue-100',   label: 'MOT' },
-      analog: { cls: 'bg-green-700/80 text-green-100', label: 'AI/O' },
-      binary: { cls: 'bg-amber-700/80 text-amber-100', label: 'BI/O' },
-      waveform: { cls: 'bg-purple-700/80 text-purple-100', label: 'WF' },
+      motor:    { cls: 'bg-blue-100 text-blue-700 border border-blue-200',   label: 'MOT' },
+      analog:   { cls: 'bg-green-100 text-green-700 border border-green-200', label: 'AI/O' },
+      binary:   { cls: 'bg-amber-100 text-amber-700 border border-amber-200', label: 'BI/O' },
+      waveform: { cls: 'bg-purple-100 text-purple-700 border border-purple-200', label: 'WF' },
     };
 
-    function DeviceNode({ stKey, devName, pvs, selPVs, onTogglePV, expanded, onToggleExp, devType, pvLabels }) {
+    function DeviceNode({ stName, devName, pvs, selPVs, onTogglePV, expanded, onToggleExp, devType, pvLabels }) {
+      const devKey = `${stName}::${devName}`;
       const total  = pvs.length;
       const selCnt = pvs.filter(p => selPVs.has(p)).length;
       const all    = selCnt === total && total > 0;
@@ -143,14 +153,12 @@
       const badge = devType ? TYPE_BADGE[devType] : null;
 
       return (
-        <div className="ml-3 mt-[1px]">
-          <div
-            onClick={() => onToggleExp(stKey)}
-            className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-slate-700/50 group"
-          >
-            <span className="text-slate-500 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+        <div className="ml-3 mt-px">
+          <div onClick={() => onToggleExp(devKey)}
+            className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-gray-100 group">
+            <span className="text-gray-400 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
             <Tri checked={all} partial={some} onChange={toggleAll} />
-            <span className="text-sm text-slate-200 font-medium truncate flex-1" title={devName}>
+            <span className="text-sm text-gray-700 font-medium truncate flex-1" title={devName}>
               {devName}
             </span>
             {badge && (
@@ -158,14 +166,16 @@
                 {badge.label}
               </span>
             )}
-            <span className="text-[10px] text-slate-500 shrink-0 ml-1">{total}</span>
+            <span className="text-[10px] text-gray-400 shrink-0 ml-1">{total}</span>
           </div>
           {expanded && (
-            <div className="ml-5 border-l border-slate-700/60 pl-1 pb-1">
+            <div className="ml-5 border-l border-gray-200 pl-1 pb-1">
               {pvs.map(pv => (
-                <PVItem key={pv} pv={pv} selected={selPVs.has(pv)}
-                  onToggle={v => onTogglePV(pv, v === undefined ? !selPVs.has(pv) : v)}
-                  label={pvLabels?.[pv]} />
+                <PVItem
+                  key={pv} pv={pv} selected={selPVs.has(pv)}
+                  onToggle={() => onTogglePV(pv)}
+                  label={pvLabels?.[pv]}
+                />
               ))}
             </div>
           )}
@@ -190,40 +200,35 @@
       };
 
       return (
-        <div className="mb-0.5">
-          <div
-            onClick={() => onToggleExp(stName)}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
-              bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/40`}
-          >
-            <span className="text-slate-400 text-[11px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+        <div className="mb-1">
+          <div onClick={() => onToggleExp(stName)}
+            className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
+              bg-gray-100 hover:bg-gray-200 border border-gray-200">
+            <span className="text-gray-500 text-[11px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
             <Tri checked={all} partial={some} onChange={toggleAll} />
-            <span className="text-sm font-bold text-slate-100 flex-1 truncate" title={stLabel || stName}>
+            <span className="text-sm font-bold text-gray-800 flex-1 truncate" title={stLabel || stName}>
               {stLabel || stName}
             </span>
-            <span className="text-[10px] text-slate-500 shrink-0">
+            <span className="text-[10px] text-gray-400 shrink-0">
               {devKeys.length}d · {allPVs.length}p
             </span>
           </div>
           {expanded && (
             <div className="mt-0.5 ml-1">
-              {devKeys.map(dev => {
-                const devKey = `${stName}::${dev}`;
-                return (
-                  <DeviceNode
-                    key={dev}
-                    stKey={devKey}
-                    devName={dev}
-                    pvs={devices[dev]}
-                    selPVs={selPVs}
-                    onTogglePV={onTogglePV}
-                    expanded={expandedDevs.has(devKey)}
-                    onToggleExp={onToggleDev}
-                    devType={config?.deviceTypes?.[`${stName}:${dev}`]}
-                    pvLabels={config?.pvLabels}
-                  />
-                );
-              })}
+              {devKeys.map(dev => (
+                <DeviceNode
+                  key={dev}
+                  stName={stName}
+                  devName={dev}
+                  pvs={devices[dev]}
+                  selPVs={selPVs}
+                  onTogglePV={onTogglePV}
+                  expanded={expandedDevs.has(`${stName}::${dev}`)}
+                  onToggleExp={onToggleDev}
+                  devType={config?.deviceTypes?.[`${stName}:${dev}`]}
+                  pvLabels={config?.pvLabels}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -250,20 +255,18 @@
         <div className="flex items-center gap-1.5 flex-wrap">
           {PRESETS.map(p => (
             <button key={p.label} onClick={() => apply(p.ms)}
-              className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
+              className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded border border-gray-200 transition-colors">
               {p.label}
             </button>
           ))}
-          <span className="text-slate-600 mx-1">|</span>
+          <span className="text-gray-300 mx-1">|</span>
           <input type="datetime-local" value={fmtDTLocal(tr.from)}
             onChange={e => onChange({ ...tr, from: new Date(e.target.value) })}
-            className="text-xs bg-slate-800 border border-slate-600 text-slate-300 rounded px-2 py-1
-              focus:outline-none focus:border-blue-500" />
-          <span className="text-slate-400 text-xs">→</span>
+            className="text-xs bg-white border border-gray-300 text-gray-700 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+          <span className="text-gray-400 text-xs">→</span>
           <input type="datetime-local" value={fmtDTLocal(tr.to)}
             onChange={e => onChange({ ...tr, to: new Date(e.target.value) })}
-            className="text-xs bg-slate-800 border border-slate-600 text-slate-300 rounded px-2 py-1
-              focus:outline-none focus:border-blue-500" />
+            className="text-xs bg-white border border-gray-300 text-gray-700 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
         </div>
       );
     }
@@ -274,26 +277,26 @@
       const arr = [...selPVs];
       if (arr.length === 0) return null;
       return (
-        <div className="flex items-center gap-3 px-4 py-2 bg-blue-950/70 border-t border-blue-800/60 shrink-0">
-          <span className="text-sm font-semibold text-blue-300 shrink-0">
+        <div className="flex items-center gap-3 px-4 py-2 bg-blue-50 border-t border-blue-200 shrink-0">
+          <span className="text-sm font-semibold text-blue-700 shrink-0">
             {arr.length} PV{arr.length !== 1 ? 's' : ''} selected
           </span>
           <div className="flex gap-1 flex-1 overflow-hidden">
             {arr.slice(0, 6).map(pv => (
-              <span key={pv} className="text-[10px] pv-mono bg-blue-900 text-blue-200 px-1.5 py-0.5 rounded shrink-0">
+              <span key={pv} className="text-[10px] pv-mono bg-blue-100 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded shrink-0">
                 {pv}
               </span>
             ))}
             {arr.length > 6 && (
-              <span className="text-xs text-blue-400 shrink-0">+{arr.length - 6} more</span>
+              <span className="text-xs text-blue-500 shrink-0">+{arr.length - 6} more</span>
             )}
           </div>
           <button onClick={onClear}
-            className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-700 transition-colors shrink-0">
+            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 border border-gray-200 transition-colors shrink-0">
             Clear
           </button>
           <button onClick={onPlot}
-            className="text-sm font-semibold px-4 py-1.5 bg-blue-600 hover:bg-blue-500
+            className="text-sm font-semibold px-4 py-1.5 bg-blue-600 hover:bg-blue-700
               text-white rounded transition-colors flex items-center gap-1.5 shrink-0">
             ▶ Plot
           </button>
@@ -301,89 +304,506 @@
       );
     }
 
-    // ── Config editor modal ───────────────────────────────────────────────────
+    // ── Archiver Search Modal ─────────────────────────────────────────────────
 
-    const CONFIG_HELP = `{
-  "pvOverrides": {
-    "NON:STANDARD:PV": { "station": "25IDA", "device": "MyDevice" }
-  },
-  "stationLabels": {
-    "25IDA": "Station A — White Beam",
-    "25IDB": "Station B — Mono"
-  },
-  "deviceTypes": {
-    "25IDA:M1": "motor",
-    "25IDA:VALVE1": "binary",
-    "25IDA:ION1": "analog",
-    "25IDA:BPM1": "waveform"
-  },
-  "pvLabels": {
-    "25IDA:M1:RBV": "Sample X position"
-  },
-  "hiddenPVs": ["NOISY:PV:NAME"],
-  "viewerBaseUrl": "http://164.54.169.92:17665/viewer/index.html",
-  "viewerUrlFormat": "query"
-}`;
+    function SearchModal({ onAddToSelection, onClose }) {
+      const [pattern,  setPattern]  = useState('');
+      const [results,  setResults]  = useState(null);  // null = not searched yet
+      const [checked,  setChecked]  = useState(new Set());
+      const [loading,  setLoading]  = useState(false);
+      const [error,    setError]    = useState('');
 
-    function ConfigModal({ config, onSave, onClose }) {
-      const [text, setText]   = useState(JSON.stringify(config, null, 2));
-      const [err,  setErr]    = useState('');
-      const [dirty, setDirty] = useState(false);
-
-      const handleChange = v => { setText(v); setDirty(true); setErr(''); };
-
-      const handleSave = () => {
+      const runSearch = async () => {
+        if (!pattern.trim()) return;
+        setLoading(true); setError(''); setResults(null); setChecked(new Set());
         try {
-          const parsed = JSON.parse(text);
-          setErr('');
-          onSave(parsed);
+          const r = await fetch(`/api/search?pattern=${encodeURIComponent(pattern.trim())}`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          setResults(Array.isArray(data) ? data.sort() : []);
         } catch (e) {
-          setErr(`JSON syntax error: ${e.message}`);
+          setError(e.message);
+        } finally {
+          setLoading(false);
         }
       };
 
+      const handleKey = e => { if (e.key === 'Enter') runSearch(); };
+
+      const togglePV = pv => setChecked(prev => {
+        const n = new Set(prev); n.has(pv) ? n.delete(pv) : n.add(pv); return n;
+      });
+
+      const toggleAll = () => {
+        if (!results) return;
+        setChecked(prev => prev.size === results.length ? new Set() : new Set(results));
+      };
+
+      const allChecked   = results && checked.size === results.length && results.length > 0;
+      const someChecked  = checked.size > 0 && !allChecked;
+
+      const GLOB_EXAMPLES = ['15IDA:*', '*:M1:*', '*BeamPos*', '15ID*:*:RBV'];
+
       return (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 shrink-0">
-              <h2 className="text-slate-100 font-bold text-lg">⚙ Configuration</h2>
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-100 text-2xl leading-none">×</button>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] border border-gray-200">
+
+            {/* header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0">
+              <h2 className="font-bold text-gray-800 text-lg">Search Archiver PVs</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
             </div>
 
-            <div className="flex flex-col gap-3 px-5 py-4 overflow-y-auto flex-1">
-              <details className="group">
-                <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200 select-none">
-                  Show format reference ▶
-                </summary>
-                <pre className="mt-2 text-xs text-slate-400 bg-slate-900 p-3 rounded overflow-x-auto border border-slate-700">
-                  {CONFIG_HELP}
-                </pre>
-              </details>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400 font-medium">overrides.json</label>
-                  {dirty && <span className="text-xs text-amber-400">unsaved changes</span>}
-                </div>
-                <textarea
-                  value={text}
-                  onChange={e => handleChange(e.target.value)}
-                  spellCheck={false}
-                  className="w-full h-72 bg-slate-900 text-green-300 pv-mono text-xs p-3 rounded
-                    border border-slate-600 focus:outline-none focus:border-blue-500 resize-y"
-                />
-                {err && <p className="text-red-400 text-xs mt-1">{err}</p>}
+            {/* search bar */}
+            <div className="px-5 py-4 border-b border-gray-100 shrink-0 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  value={pattern} onChange={e => setPattern(e.target.value)} onKeyDown={handleKey}
+                  placeholder="Glob pattern, e.g.  15IDA:*  or  *:M1:*  or  *BeamPos*"
+                  autoFocus
+                  className="flex-1 text-sm border border-gray-300 rounded px-3 py-2
+                    focus:outline-none focus:border-blue-400 pv-mono" />
+                <button onClick={runSearch} disabled={loading || !pattern.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold
+                    rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  {loading ? '…' : 'Search'}
+                </button>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-400">Examples:</span>
+                {GLOB_EXAMPLES.map(ex => (
+                  <button key={ex} onClick={() => setPattern(ex)}
+                    className="text-xs pv-mono px-2 py-0.5 bg-gray-100 hover:bg-gray-200
+                      text-gray-600 rounded border border-gray-200 transition-colors">
+                    {ex}
+                  </button>
+                ))}
+                <span className="text-xs text-gray-400 ml-1">— use <code className="bg-gray-100 px-1 rounded">*</code> as wildcard</span>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-700 shrink-0">
+            {/* results */}
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {error && (
+                <div className="m-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">{error}</div>
+              )}
+              {results === null && !loading && (
+                <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+                  Enter a pattern and press Search
+                </div>
+              )}
+              {results !== null && results.length === 0 && (
+                <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+                  No PVs matched <span className="pv-mono ml-1 text-gray-600">"{pattern}"</span>
+                </div>
+              )}
+              {results !== null && results.length > 0 && (
+                <div>
+                  {/* select-all bar */}
+                  <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 border-b border-gray-100 sticky top-0">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Tri checked={allChecked} partial={someChecked}
+                        onChange={toggleAll} />
+                      <span className="text-xs text-gray-600 font-medium">
+                        {checked.size > 0
+                          ? `${checked.size} of ${results.length} selected`
+                          : `${results.length} result${results.length !== 1 ? 's' : ''}`}
+                      </span>
+                    </label>
+                  </div>
+                  {/* PV list */}
+                  <div className="px-3 py-1">
+                    {results.map(pv => (
+                      <div key={pv} onClick={() => togglePV(pv)}
+                        className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer
+                          hover:bg-blue-50 ${checked.has(pv) ? 'bg-blue-50' : ''}`}>
+                        <Tri checked={checked.has(pv)} partial={false} onChange={() => togglePV(pv)} />
+                        <span className="pv-mono text-xs text-gray-600 truncate-pv" title={pv}>{pv}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* footer */}
+            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 shrink-0">
+              <span className="text-xs text-gray-400">
+                {checked.size > 0
+                  ? `${checked.size} PV${checked.size !== 1 ? 's' : ''} will be added to selection`
+                  : 'Check PVs above, then click Add to Selection'}
+              </span>
+              <div className="flex gap-2">
+                <button onClick={onClose}
+                  className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded
+                    hover:bg-gray-100 border border-gray-200 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { onAddToSelection([...checked]); onClose(); }}
+                  disabled={checked.size === 0}
+                  className="text-sm font-semibold px-5 py-1.5 bg-blue-600 hover:bg-blue-700
+                    text-white rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  + Add to Selection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Groups Manager Modal ──────────────────────────────────────────────────
+
+    function GroupsModal({ config, pvList, onSave, onClose }) {
+      const [cfg, setCfg]         = useState(() => JSON.parse(JSON.stringify(config)));
+      const [tab, setTab]         = useState('stations');
+      const [pvSearch, setPvSearch] = useState('');
+
+      // local helpers
+      const stationLabels = cfg.stationLabels || {};
+      const pvOverrides   = cfg.pvOverrides   || {};
+      const deviceTypes   = cfg.deviceTypes   || {};
+
+      const update = (patch) => setCfg(prev => ({ ...prev, ...patch }));
+
+      // ── Stations tab ──
+      const [newStName,  setNewStName]  = useState('');
+      const [newStLabel, setNewStLabel] = useState('');
+
+      // All known stations: auto-detected + ones with labels
+      const autoStations = useMemo(() => {
+        const s = new Set();
+        for (const pv of pvList) {
+          const parts = pv.split(':');
+          if (parts.length >= 1) s.add(parts[0]);
+        }
+        return [...s].sort();
+      }, [pvList]);
+      const allStations = useMemo(() => {
+        const s = new Set([...autoStations, ...Object.keys(stationLabels)]);
+        return [...s].sort();
+      }, [autoStations, stationLabels]);
+
+      const addStation = () => {
+        if (!newStName.trim()) return;
+        update({ stationLabels: { ...stationLabels, [newStName.trim()]: newStLabel.trim() || newStName.trim() } });
+        setNewStName(''); setNewStLabel('');
+      };
+      const removeStationLabel = (st) => {
+        const next = { ...stationLabels };
+        delete next[st];
+        update({ stationLabels: next });
+      };
+
+      // ── PV Assignments tab ──
+      const [assignPV,  setAssignPV]  = useState('');
+      const [assignSt,  setAssignSt]  = useState('');
+      const [assignDev, setAssignDev] = useState('');
+
+      const filteredPVs = useMemo(() => {
+        if (!pvSearch.trim()) return pvList.slice(0, 100);
+        const q = pvSearch.toLowerCase();
+        return pvList.filter(p => p.toLowerCase().includes(q)).slice(0, 100);
+      }, [pvList, pvSearch]);
+
+      const addOverride = () => {
+        if (!assignPV || !assignSt.trim() || !assignDev.trim()) return;
+        update({ pvOverrides: { ...pvOverrides, [assignPV]: { station: assignSt.trim(), device: assignDev.trim() } } });
+        setAssignPV(''); setAssignSt(''); setAssignDev('');
+      };
+      const removeOverride = (pv) => {
+        const next = { ...pvOverrides }; delete next[pv];
+        update({ pvOverrides: next });
+      };
+
+      // ── Device Types tab ──
+      const [dtKey,  setDtKey]  = useState('');
+      const [dtType, setDtType] = useState('motor');
+
+      const allDeviceKeys = useMemo(() => {
+        const keys = new Set(Object.keys(deviceTypes));
+        for (const pv of pvList) {
+          const parts = pv.split(':');
+          if (parts.length >= 2) keys.add(`${parts[0]}:${parts[1]}`);
+        }
+        return [...keys].sort();
+      }, [pvList, deviceTypes]);
+
+      const setDeviceType = (key, type) => {
+        if (!type) {
+          const next = { ...deviceTypes }; delete next[key];
+          update({ deviceTypes: next });
+        } else {
+          update({ deviceTypes: { ...deviceTypes, [key]: type } });
+        }
+      };
+
+      const TABS = [
+        { id: 'stations',    label: 'Station Labels' },
+        { id: 'assignments', label: 'PV Assignments' },
+        { id: 'devtypes',    label: 'Device Types' },
+      ];
+
+      return (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] border border-gray-200">
+
+            {/* header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0">
+              <h2 className="font-bold text-gray-800 text-lg">Manage Groups</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+            </div>
+
+            {/* tabs */}
+            <div className="flex border-b border-gray-200 shrink-0 px-4">
+              {TABS.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
+                    ${tab === t.id
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+
+              {/* ── Station Labels tab ── */}
+              {tab === 'stations' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-500">
+                    Add a human-readable label to any station, or create a custom station name to group non-standard PVs into.
+                  </p>
+
+                  {/* existing labels */}
+                  {Object.keys(stationLabels).length > 0 && (
+                    <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">Station key</th>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">Label shown in sidebar</th>
+                          <th className="px-3 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(stationLabels).map(([st, lbl]) => (
+                          <tr key={st} className="border-t border-gray-100">
+                            <td className="px-3 py-1.5 pv-mono text-xs text-gray-700">{st}</td>
+                            <td className="px-3 py-1.5">
+                              <input value={lbl}
+                                onChange={e => update({ stationLabels: { ...stationLabels, [st]: e.target.value } })}
+                                className="w-full text-sm border border-gray-200 rounded px-2 py-0.5 focus:outline-none focus:border-blue-400" />
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              <button onClick={() => removeStationLabel(st)}
+                                className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {/* add new */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-medium text-gray-600">Add / rename a station</p>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Station key (e.g. 15IDA)</label>
+                        <input value={newStName} onChange={e => setNewStName(e.target.value)}
+                          placeholder="15IDA"
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Display label</label>
+                        <input value={newStLabel} onChange={e => setNewStLabel(e.target.value)}
+                          placeholder="Station A — White Beam"
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                      </div>
+                      <div className="flex items-end">
+                        <button onClick={addStation}
+                          className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── PV Assignments tab ── */}
+              {tab === 'assignments' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-500">
+                    Assign non-standard PVs (or any PV) to a custom station and device group.
+                    Overrides the auto-detected grouping from the PV name.
+                  </p>
+
+                  {/* existing overrides */}
+                  {Object.keys(pvOverrides).length > 0 && (
+                    <table className="w-full text-xs border border-gray-200 rounded overflow-hidden">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">PV</th>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">→ Station</th>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">Device</th>
+                          <th className="px-2 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(pvOverrides).map(([pv, ov]) => (
+                          <tr key={pv} className="border-t border-gray-100">
+                            <td className="px-3 py-1.5 pv-mono text-gray-700 truncate max-w-[160px]" title={pv}>{pv}</td>
+                            <td className="px-3 py-1.5 text-gray-600">{ov.station}</td>
+                            <td className="px-3 py-1.5 text-gray-600">{ov.device}</td>
+                            <td className="px-2 py-1.5 text-center">
+                              <button onClick={() => removeOverride(pv)}
+                                className="text-red-400 hover:text-red-600">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {/* add new override */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-medium text-gray-600">Add PV assignment</p>
+
+                    {/* PV picker */}
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">
+                        PV — search and click to select
+                        {assignPV && <span className="ml-2 font-medium text-blue-600">✓ {assignPV}</span>}
+                      </label>
+                      <input value={pvSearch} onChange={e => setPvSearch(e.target.value)}
+                        placeholder="Search PVs…"
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-1 focus:outline-none focus:border-blue-400" />
+                      <div className="border border-gray-200 rounded bg-white max-h-28 overflow-y-auto">
+                        {filteredPVs.map(pv => (
+                          <div key={pv} onClick={() => setAssignPV(pv)}
+                            className={`px-2 py-1 text-xs pv-mono cursor-pointer hover:bg-blue-50
+                              ${assignPV === pv ? 'bg-blue-100 text-blue-700' : 'text-gray-600'}`}>
+                            {pv}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Station</label>
+                        <input value={assignSt} onChange={e => setAssignSt(e.target.value)}
+                          list="station-list"
+                          placeholder="e.g. 15IDA"
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                        <datalist id="station-list">
+                          {allStations.map(s => <option key={s} value={s} />)}
+                        </datalist>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Device / subgroup</label>
+                        <input value={assignDev} onChange={e => setAssignDev(e.target.value)}
+                          placeholder="e.g. Motors"
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                      </div>
+                      <div className="flex items-end">
+                        <button onClick={addOverride}
+                          disabled={!assignPV || !assignSt.trim() || !assignDev.trim()}
+                          className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded
+                            transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                          Assign
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Device Types tab ── */}
+              {tab === 'devtypes' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-500">
+                    Tag a device with a type to display a colored badge (MOT / AI/O / BI/O / WF) in the sidebar.
+                  </p>
+
+                  {Object.keys(deviceTypes).length > 0 && (
+                    <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">Device key</th>
+                          <th className="text-left px-3 py-2 text-gray-600 font-medium">Type</th>
+                          <th className="px-2 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(deviceTypes).map(([k, t]) => (
+                          <tr key={k} className="border-t border-gray-100">
+                            <td className="px-3 py-1.5 pv-mono text-xs text-gray-700">{k}</td>
+                            <td className="px-3 py-1.5">
+                              <select value={t} onChange={e => setDeviceType(k, e.target.value)}
+                                className="text-xs border border-gray-200 rounded px-1 py-0.5">
+                                {['motor','analog','binary','waveform'].map(tp => (
+                                  <option key={tp} value={tp}>{tp}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <button onClick={() => setDeviceType(k, null)}
+                                className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-medium text-gray-600">Tag a device</p>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Device key (STATION:DEVICE)</label>
+                        <input value={dtKey} onChange={e => setDtKey(e.target.value)}
+                          list="device-key-list"
+                          placeholder="15IDA:M1"
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400" />
+                        <datalist id="device-key-list">
+                          {allDeviceKeys.map(k => <option key={k} value={k} />)}
+                        </datalist>
+                      </div>
+                      <div className="w-36">
+                        <label className="text-xs text-gray-500 block mb-1">Type</label>
+                        <select value={dtType} onChange={e => setDtType(e.target.value)}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                          {['motor','analog','binary','waveform'].map(tp => (
+                            <option key={tp} value={tp}>{tp}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={() => { if (dtKey.trim()) { setDeviceType(dtKey.trim(), dtType); setDtKey(''); } }}
+                          className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+                          Tag
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* footer */}
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 shrink-0">
               <button onClick={onClose}
-                className="text-sm px-4 py-1.5 text-slate-400 hover:text-slate-200 rounded
-                  hover:bg-slate-700 transition-colors">
+                className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded
+                  hover:bg-gray-100 border border-gray-200 transition-colors">
                 Cancel
               </button>
-              <button onClick={handleSave}
-                className="text-sm font-semibold px-5 py-1.5 bg-blue-600 hover:bg-blue-500
+              <button onClick={() => onSave(cfg)}
+                className="text-sm font-semibold px-5 py-1.5 bg-blue-600 hover:bg-blue-700
                   text-white rounded transition-colors">
                 Save & Apply
               </button>
@@ -393,21 +813,59 @@
       );
     }
 
-    // ── Empty / viewer panel ──────────────────────────────────────────────────
+    // ── Raw JSON config modal ─────────────────────────────────────────────────
+
+    function JsonModal({ config, onSave, onClose }) {
+      const [text, setText] = useState(JSON.stringify(config, null, 2));
+      const [err,  setErr]  = useState('');
+      const save = () => {
+        try { onSave(JSON.parse(text)); }
+        catch(e) { setErr(`JSON error: ${e.message}`); }
+      };
+      return (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[85vh] border border-gray-200">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0">
+              <h2 className="font-bold text-gray-800">Raw JSON Config</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <textarea value={text} onChange={e => { setText(e.target.value); setErr(''); }}
+                spellCheck={false}
+                className="w-full h-72 bg-gray-950 text-green-400 pv-mono text-xs p-3 rounded
+                  border border-gray-300 focus:outline-none focus:border-blue-400 resize-y" />
+              {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 shrink-0">
+              <button onClick={onClose}
+                className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={save}
+                className="text-sm font-semibold px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+                Save & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Empty state ───────────────────────────────────────────────────────────
 
     function EmptyState({ selCount }) {
       return (
-        <div className="flex flex-col items-center justify-center h-full text-slate-500 select-none">
-          <div className="text-7xl mb-5 opacity-40">📈</div>
+        <div className="flex flex-col items-center justify-center h-full text-gray-400 select-none bg-gray-50">
+          <div className="text-7xl mb-5 opacity-30">📈</div>
           {selCount === 0 ? (
             <>
-              <p className="text-lg font-semibold text-slate-400">Select PVs to plot</p>
-              <p className="text-sm mt-1">Use the sidebar to browse and check PVs,<br/>then click ▶ Plot</p>
+              <p className="text-lg font-semibold text-gray-500">Select PVs to plot</p>
+              <p className="text-sm mt-1 text-gray-400">Browse the sidebar, check PVs, then click ▶ Plot</p>
             </>
           ) : (
             <>
-              <p className="text-lg font-semibold text-slate-400">{selCount} PVs ready</p>
-              <p className="text-sm mt-1">Click ▶ Plot to open the Archiver Viewer</p>
+              <p className="text-lg font-semibold text-gray-500">{selCount} PVs ready</p>
+              <p className="text-sm mt-1 text-gray-400">Click ▶ Plot to open the Archiver Viewer</p>
             </>
           )}
         </div>
@@ -417,23 +875,21 @@
     // ── Main App ─────────────────────────────────────────────────────────────
 
     function App() {
-      const [pvList,         setPvList]       = useState([]);
-      const [config,         setConfig]       = useState({});
-      const [selPVs,         setSelPVs]       = useState(new Set());
-      const [search,         setSearch]       = useState('');
-      const [expStations,    setExpStations]  = useState(new Set());
-      const [expDevices,     setExpDevices]   = useState(new Set());
-      const [tr,             setTr]           = useState(() => ({
-        from: new Date(Date.now() - 3_600_000),
-        to:   new Date(),
+      const [pvList,      setPvList]    = useState([]);
+      const [config,      setConfig]    = useState({});
+      const [selPVs,      setSelPVs]    = useState(new Set());
+      const [search,      setSearch]    = useState('');
+      const [expSt,       setExpSt]     = useState(new Set());
+      const [expDev,      setExpDev]    = useState(new Set());
+      const [tr,          setTr]        = useState(() => ({
+        from: new Date(Date.now() - 3_600_000), to: new Date(),
       }));
-      const [viewerUrl,      setViewerUrl]    = useState(null);
-      const [viewerKey,      setViewerKey]    = useState(0);
-      const [loading,        setLoading]      = useState(true);
-      const [fetchErr,       setFetchErr]     = useState(null);
-      const [showConfig,     setShowConfig]   = useState(false);
+      const [viewerUrl,   setViewerUrl] = useState(null);
+      const [viewerKey,   setViewerKey] = useState(0);
+      const [loading,     setLoading]   = useState(true);
+      const [fetchErr,    setFetchErr]  = useState(null);
+      const [modal,       setModal]     = useState(null); // null | 'groups' | 'json'
 
-      // ── Bootstrap ──
       useEffect(() => {
         Promise.all([
           fetch('/api/pvs').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
@@ -448,24 +904,19 @@
         });
       }, []);
 
-      // ── Derived state ──
       const grouped  = useMemo(() => groupPVs(pvList, config), [pvList, config]);
       const filtered = useMemo(() => filterGroups(grouped, search), [grouped, search]);
       const stations = useMemo(() => Object.keys(filtered).sort(), [filtered]);
 
-      // auto-expand when searching
       useEffect(() => {
         if (!search.trim()) return;
-        const sts  = new Set(Object.keys(filtered));
+        setExpSt(new Set(Object.keys(filtered)));
         const devs = new Set();
-        for (const [st, devMap] of Object.entries(filtered)) {
+        for (const [st, devMap] of Object.entries(filtered))
           for (const dev of Object.keys(devMap)) devs.add(`${st}::${dev}`);
-        }
-        setExpStations(sts);
-        setExpDevices(devs);
+        setExpDev(devs);
       }, [search]);
 
-      // ── Handlers ──
       const togglePV = useCallback((pv, forceOn) => {
         setSelPVs(prev => {
           const next = new Set(prev);
@@ -475,13 +926,8 @@
         });
       }, []);
 
-      const toggleStation = useCallback(st => {
-        setExpStations(prev => { const n = new Set(prev); n.has(st) ? n.delete(st) : n.add(st); return n; });
-      }, []);
-
-      const toggleDevice = useCallback(dk => {
-        setExpDevices(prev => { const n = new Set(prev); n.has(dk) ? n.delete(dk) : n.add(dk); return n; });
-      }, []);
+      const toggleSt  = useCallback(st => setExpSt(prev => { const n=new Set(prev); n.has(st)?n.delete(st):n.add(st); return n; }), []);
+      const toggleDev = useCallback(dk => setExpDev(prev => { const n=new Set(prev); n.has(dk)?n.delete(dk):n.add(dk); return n; }), []);
 
       const handlePlot = useCallback(() => {
         if (selPVs.size === 0) return;
@@ -490,46 +936,52 @@
         setViewerKey(k => k + 1);
       }, [selPVs, tr, config]);
 
-      const handleSaveConfig = useCallback(async (newCfg) => {
+      const saveConfig = useCallback(async (newCfg) => {
         try {
           await fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newCfg),
           });
           setConfig(newCfg);
-          setShowConfig(false);
-        } catch (e) {
-          alert(`Failed to save config: ${e.message}`);
-        }
+          setModal(null);
+        } catch (e) { alert(`Failed to save: ${e.message}`); }
       }, []);
 
-      // ── Render ──
       return (
-        <div className="flex flex-col h-full bg-slate-900">
+        <div className="flex flex-col h-full bg-gray-50">
 
           {/* ── Header ── */}
-          <header className="flex items-center gap-4 px-4 py-2 bg-slate-950 border-b border-slate-700 shrink-0">
+          <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0 shadow-sm">
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-blue-400 font-bold text-base tracking-tight">⚛ AR Viewer</span>
-              <span className="hidden lg:block text-slate-500 text-xs">Beamline PV Browser</span>
+              <span className="text-blue-600 font-bold text-base tracking-tight">⚛ AR Viewer</span>
+              <span className="hidden lg:block text-gray-400 text-xs">Beamline PV Browser</span>
             </div>
-
             <div className="flex-1 flex items-center">
               <TimeBar tr={tr} onChange={setTr} />
             </div>
-
             <div className="flex items-center gap-2 shrink-0">
               {viewerUrl && (
                 <a href={viewerUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded
-                    hover:bg-slate-700 transition-colors" title="Open viewer in new tab">
+                  className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded
+                    hover:bg-gray-100 border border-gray-200 transition-colors">
                   ↗ New Tab
                 </a>
               )}
-              <button onClick={() => setShowConfig(true)}
-                className="text-xs px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
-                ⚙ Config
+              <a href="http://164.54.169.92:17665/mgmt/ui/index.html" target="_blank" rel="noopener noreferrer"
+                className="text-xs px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 rounded border border-gray-200 transition-colors">
+                + AA Mgmt
+              </a>
+              <button onClick={() => setModal('search')}
+                className="text-xs px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors font-medium">
+                🔎 Search PVs
+              </button>
+              <button onClick={() => setModal('groups')}
+                className="text-xs px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 rounded border border-gray-200 transition-colors">
+                ⊞ Groups
+              </button>
+              <button onClick={() => setModal('json')}
+                className="text-xs px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 rounded border border-gray-200 transition-colors">
+                ⚙ JSON
               </button>
             </div>
           </header>
@@ -538,60 +990,50 @@
           <div className="flex flex-1 min-h-0">
 
             {/* ── Sidebar ── */}
-            <aside className="w-80 flex flex-col bg-slate-900 border-r border-slate-700 shrink-0">
-
-              {/* search */}
-              <div className="px-3 py-2 border-b border-slate-700/60 shrink-0">
+            <aside className="w-80 flex flex-col bg-white border-r border-gray-200 shrink-0">
+              <div className="px-3 py-2 border-b border-gray-100 shrink-0">
                 <div className="relative">
-                  <span className="absolute left-2.5 top-1.5 text-slate-500 text-xs pointer-events-none">🔍</span>
-                  <input
-                    type="text" value={search}
-                    onChange={e => setSearch(e.target.value)}
+                  <span className="absolute left-2.5 top-1.5 text-gray-400 text-xs pointer-events-none">🔍</span>
+                  <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                     placeholder="Filter PVs…"
-                    className="w-full bg-slate-800 border border-slate-600 text-slate-200
-                      placeholder-slate-500 text-sm rounded px-3 py-1 pl-7
-                      focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-gray-50 border border-gray-200 text-gray-800
+                      placeholder-gray-400 text-sm rounded px-3 py-1 pl-7
+                      focus:outline-none focus:border-blue-400" />
                 </div>
                 <div className="flex justify-between mt-1 px-0.5">
-                  <span className="text-[10px] text-slate-500">{pvList.length.toLocaleString()} PVs archived</span>
+                  <span className="text-[10px] text-gray-400">{pvList.length.toLocaleString()} PVs archived</span>
                   {selPVs.size > 0 && (
                     <button onClick={() => setSelPVs(new Set())}
-                      className="text-[10px] text-blue-400 hover:text-blue-300">
+                      className="text-[10px] text-blue-500 hover:text-blue-700">
                       Clear {selPVs.size} selected
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* tree */}
               <div className="flex-1 overflow-y-auto p-2">
                 {loading && (
                   <div className="flex items-center justify-center h-32">
-                    <span className="text-slate-500 text-sm animate-pulse">Loading PVs…</span>
+                    <span className="text-gray-400 text-sm animate-pulse">Loading PVs…</span>
                   </div>
                 )}
                 {fetchErr && (
-                  <div className="m-2 p-3 bg-red-900/30 border border-red-700/40 rounded text-red-400 text-xs">
+                  <div className="m-2 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-xs">
                     <p className="font-semibold mb-1">Could not reach archiver</p>
                     <p className="opacity-80">{fetchErr}</p>
                   </div>
                 )}
                 {!loading && !fetchErr && stations.length === 0 && (
-                  <p className="text-slate-500 text-sm text-center p-6">
+                  <p className="text-gray-400 text-sm text-center p-6">
                     {search ? 'No matching PVs' : 'No PVs found'}
                   </p>
                 )}
                 {stations.map(st => (
                   <StationNode
-                    key={st}
-                    stName={st}
-                    devices={filtered[st]}
-                    selPVs={selPVs}
-                    onTogglePV={togglePV}
-                    expanded={expStations.has(st)}
-                    onToggleExp={toggleStation}
-                    expandedDevs={expDevices}
-                    onToggleDev={toggleDevice}
+                    key={st} stName={st} devices={filtered[st]}
+                    selPVs={selPVs} onTogglePV={togglePV}
+                    expanded={expSt.has(st)} onToggleExp={toggleSt}
+                    expandedDevs={expDev} onToggleDev={toggleDev}
                     stLabel={config?.stationLabels?.[st]}
                     config={config}
                   />
@@ -600,15 +1042,11 @@
             </aside>
 
             {/* ── Main viewer ── */}
-            <main className="flex-1 flex flex-col min-w-0 bg-slate-950">
+            <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
               {viewerUrl ? (
-                <iframe
-                  key={viewerKey}
-                  src={viewerUrl}
-                  title="Archiver Viewer"
+                <iframe key={viewerKey} src={viewerUrl} title="Archiver Viewer"
                   className="flex-1 w-full border-none bg-white"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-                />
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" />
               ) : (
                 <EmptyState selCount={selPVs.size} />
               )}
@@ -618,9 +1056,18 @@
           {/* ── Selection tray ── */}
           <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} />
 
-          {/* ── Config modal ── */}
-          {showConfig && (
-            <ConfigModal config={config} onSave={handleSaveConfig} onClose={() => setShowConfig(false)} />
+          {/* ── Modals ── */}
+          {modal === 'search' && (
+            <SearchModal
+              onAddToSelection={pvs => setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; })}
+              onClose={() => setModal(null)}
+            />
+          )}
+          {modal === 'groups' && (
+            <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />
+          )}
+          {modal === 'json' && (
+            <JsonModal config={config} onSave={saveConfig} onClose={() => setModal(null)} />
           )}
         </div>
       );

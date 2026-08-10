@@ -3,6 +3,6 @@
   "stationLabels": {},
   "deviceTypes": {},
   "hiddenPVs": [],
-  "viewerBaseUrl": "http://164.54.169.92:17665/viewer/index.html",
+  "viewerBaseUrl": "http://164.54.169.92:17668/retrieval/ui/viewer/archViewer.html",
   "viewerUrlFormat": "query"
 }
