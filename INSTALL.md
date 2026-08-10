@@ -14,8 +14,8 @@ The pre-built frontend is included in the repository.
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/nayanbera/archiver-arviewer.git
-cd archiver-arviewer
+git clone https://github.com/nayanbera/archiver-viewer.git
+cd archiver-viewer
 ```
 
 ---
@@ -72,7 +72,7 @@ Open `arviewer.service` and update these two lines to match your system:
 
 ```ini
 User=beamline                          # ← the Linux user account that runs the app
-WorkingDirectory=/opt/arviewer         # ← full path to where you cloned the repo
+WorkingDirectory=/opt/archiver-viewer  # ← full path to where you cloned the repo
 ExecStart=/opt/anaconda3/bin/python app.py  # ← full path to your Python binary
 ```
 
@@ -86,11 +86,11 @@ which python   # or: which python3
 
 ```bash
 # Copy the repo to the permanent install location
-sudo cp -r . /opt/arviewer
-sudo chown -R beamline:beamline /opt/arviewer
+sudo cp -r . /opt/archiver-viewer
+sudo chown -R beamline:beamline /opt/archiver-viewer
 
 # Install the systemd unit
-sudo cp /opt/arviewer/arviewer.service /etc/systemd/system/arviewer.service
+sudo cp /opt/archiver-viewer/arviewer.service /etc/systemd/system/arviewer.service
 sudo systemctl daemon-reload
 sudo systemctl enable arviewer     # start automatically on every boot
 sudo systemctl start arviewer      # start right now
@@ -141,7 +141,7 @@ sudo systemctl restart arviewer
 ### Update to a newer version
 
 ```bash
-cd /opt/arviewer
+cd /opt/archiver-viewer
 git pull
 pip install -r requirements.txt   # in case dependencies changed
 sudo systemctl restart arviewer
@@ -149,7 +149,7 @@ sudo systemctl restart arviewer
 
 ### Edit the PV grouping config
 
-The config file lives at `config/overrides.json` (or `CONFIG_PATH`).
+The config file lives at `/opt/archiver-viewer/config/overrides.json` (or `CONFIG_PATH`).
 You can edit it:
 - **From the web UI** — click **⊞ Groups** or **⚙ JSON** in the header and save.
   Changes take effect immediately without restarting.
