@@ -1,4 +1,4 @@
-# AR Viewer — Beamline Installation Guide
+# Archiver Viewer — Beamline Installation Guide
 
 ## What you need on the beamline machine
 

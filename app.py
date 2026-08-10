@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="AR Viewer")
+app = FastAPI(title="Archiver Viewer")
 
 ARCHIVER_MGMT_URL      = os.getenv("ARCHIVER_MGMT_URL",      "http://164.54.169.92:17665")
 ARCHIVER_RETRIEVAL_URL = os.getenv("ARCHIVER_RETRIEVAL_URL",  "http://164.54.169.92:17668")
@@ -130,6 +130,6 @@ if __name__ == "__main__":
     if port != requested:
         log.warning("Port %d is in use — using port %d instead", requested, port)
     log.info("=" * 50)
-    log.info("  AR Viewer running at http://localhost:%d", port)
+    log.info("  Archiver Viewer running at http://localhost:%d", port)
     log.info("=" * 50)
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False, workers=1)

@@ -132,7 +132,7 @@ export default function App() {
       {/* Header */}
       <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0 shadow-sm">
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-blue-600 font-bold text-base tracking-tight">⚛ AR Viewer</span>
+          <span className="text-blue-600 font-bold text-base tracking-tight">⚛ Archiver Viewer</span>
           <span className="hidden lg:block text-gray-400 text-xs">Beamline PV Browser</span>
         </div>
         <div className="flex-1 flex items-center"><TimeBar tr={tr} onChange={setTr} /></div>
