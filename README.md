@@ -70,7 +70,7 @@ Press **Ctrl+C** to stop.
 
 ### Step 4 — Install as a systemd service (auto-start on boot)
 
-**4a. Edit `arviewer.service`** — update these three lines to match your system:
+**4a. Edit `archiver-viewer.service`** — update these three lines to match your system:
 
 ```ini
 User=beamline                                                        # Linux user that runs the app
@@ -93,16 +93,16 @@ sudo cp -r . /opt/archiver-viewer
 sudo chown -R beamline:beamline /opt/archiver-viewer
 
 # Install and enable the systemd service
-sudo cp /opt/archiver-viewer/arviewer.service /etc/systemd/system/arviewer.service
+sudo cp /opt/archiver-viewer/archiver-viewer.service /etc/systemd/system/archiver-viewer.service
 sudo systemctl daemon-reload
-sudo systemctl enable arviewer    # start automatically on every boot
-sudo systemctl start arviewer     # start right now
+sudo systemctl enable archiver-viewer    # start automatically on every boot
+sudo systemctl start archiver-viewer     # start right now
 ```
 
 **4c. Verify it is running:**
 
 ```bash
-sudo systemctl status arviewer
+sudo systemctl status archiver-viewer
 ```
 
 You should see `Active: active (running)`.
@@ -125,7 +125,7 @@ http://<beamline-machine-hostname>:8080
 
 ## Configuration
 
-Archiver URLs are set via environment variables in `arviewer.service`:
+Archiver URLs are set via environment variables in `archiver-viewer.service`:
 
 | Variable                 | Default                          |
 |--------------------------|----------------------------------|
@@ -143,15 +143,15 @@ PV grouping overrides (station labels, device types, manual PV assignments) are 
 ### Stop / Start / Restart
 
 ```bash
-sudo systemctl stop arviewer
-sudo systemctl start arviewer
-sudo systemctl restart arviewer
+sudo systemctl stop archiver-viewer
+sudo systemctl start archiver-viewer
+sudo systemctl restart archiver-viewer
 ```
 
 ### View live logs
 
 ```bash
-journalctl -u arviewer -f
+journalctl -u archiver-viewer -f
 ```
 
 ### Update to a newer version
@@ -160,7 +160,7 @@ journalctl -u arviewer -f
 cd /opt/archiver-viewer
 git pull
 conda env update -f environment.yml --prune
-sudo systemctl restart arviewer
+sudo systemctl restart archiver-viewer
 ```
 
 ---
@@ -171,8 +171,8 @@ sudo systemctl restart arviewer
 |---------|---------------|
 | Blank page | Run `python app.py` manually and look at terminal output |
 | "Could not reach archiver" in sidebar | `curl http://164.54.169.92:17665/mgmt/bpl/getApplianceInfo` |
-| Port 8080 already in use | Change `PORT=` in `arviewer.service` and restart |
-| Service won't start | `journalctl -u arviewer -n 50` |
+| Port 8080 already in use | Change `PORT=` in `archiver-viewer.service` and restart |
+| Service won't start | `journalctl -u archiver-viewer -n 50` |
 | PVs missing after adding in AA | Refresh the browser — PV list is fetched fresh on each page load |
 
 ---

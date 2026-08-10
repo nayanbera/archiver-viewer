@@ -21,10 +21,10 @@ Environment="ARCHIVER_MGMT_URL=http://164.54.169.92:17665"
 Environment="ARCHIVER_RETRIEVAL_URL=http://164.54.169.92:17668"
 Environment="CONFIG_PATH=/opt/archiver-viewer/config/overrides.json"
 
-# Logging goes to journald (use: journalctl -u arviewer -f)
+# Logging goes to journald (use: journalctl -u archiver-viewer -f)
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=arviewer
+SyslogIdentifier=archiver-viewer
 
 [Install]
 WantedBy=multi-user.target
