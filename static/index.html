@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR Viewer — Beamline PV Browser</title>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+    input[type="checkbox"]:indeterminate { accent-color: #3b82f6; opacity: 0.7; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .pv-mono { font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace; }
+    .truncate-pv { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body class="h-full bg-slate-900 text-slate-200">
+  <div id="root" class="h-full"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+    // ── Utilities ────────────────────────────────────────────────────────────
+
+    function groupPVs(pvList, config = {}) {
+      const { pvOverrides = {}, hiddenPVs = [] } = config;
+      const hiddenSet = new Set(hiddenPVs);
+      const groups = {};
+      for (const pv of pvList) {
+        if (hiddenSet.has(pv)) continue;
+        const ov = pvOverrides[pv];
+        let station, device;
+        if (ov) {
+          station = ov.station || '_Ungrouped';
+          device  = ov.device  || pv;
+        } else {
+          const parts = pv.split(':');
+          station = parts.length >= 1 ? parts[0] : '_Ungrouped';
+          device  = parts.length >= 2 ? parts[1] : '_Direct';
+        }
+        if (!groups[station]) groups[station] = {};
+        if (!groups[station][device]) groups[station][device] = [];
+        groups[station][device].push(pv);
+      }
+      return groups;
+    }
+
+    function filterGroups(groups, query) {
+      if (!query.trim()) return groups;
+      const q = query.toLowerCase();
+      const out = {};
+      for (const [st, devs] of Object.entries(groups)) {
+        const matchDevs = {};
+        for (const [dev, pvs] of Object.entries(devs)) {
+          const hits = pvs.filter(p =>
+            p.toLowerCase().includes(q) ||
+            dev.toLowerCase().includes(q) ||
+            st.toLowerCase().includes(q)
+          );
+          if (hits.length) matchDevs[dev] = hits;
+        }
+        if (Object.keys(matchDevs).length) out[st] = matchDevs;
+      }
+      return out;
+    }
+
+    function buildViewerUrl(pvNames, from, to, cfg = {}) {
+      const base   = cfg.viewerBaseUrl  || 'http://164.54.169.92:17665/viewer/index.html';
+      const format = cfg.viewerUrlFormat || 'query';
+      const pvStr  = pvNames.map(p => `pv=${encodeURIComponent(p)}`).join('&');
+      const fromS  = (from instanceof Date ? from : new Date(from)).toISOString();
+      const toS    = (to   instanceof Date ? to   : new Date(to)  ).toISOString();
+      const params = `${pvStr}&from=${encodeURIComponent(fromS)}&to=${encodeURIComponent(toS)}`;
+      return format === 'hash' ? `${base}#${params}` : `${base}?${params}`;
+    }
+
+    function fmtDTLocal(d) {
+      const dt = new Date(d);
+      const p  = n => String(n).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    }
+
+    // ── Checkbox with indeterminate support ──────────────────────────────────
+
+    function Tri({ checked, partial, onChange, className = '' }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current) ref.current.indeterminate = partial && !checked;
+      }, [partial, checked]);
+      return (
+        <input ref={ref} type="checkbox" checked={checked} onChange={onChange}
+          onClick={e => e.stopPropagation()}
+          className={`w-3.5 h-3.5 rounded cursor-pointer accent-blue-500 shrink-0 ${className}`} />
+      );
+    }
+
+    // ── PV leaf item ─────────────────────────────────────────────────────────
+
+    function PVItem({ pv, selected, onToggle, label }) {
+      return (
+        <div
+          onClick={() => onToggle(pv)}
+          className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer hover:bg-slate-700/60 group
+            ${selected ? 'bg-blue-900/25' : ''}`}
+        >
+          <Tri checked={selected} partial={false} onChange={() => onToggle(pv)} />
+          <span className="pv-mono truncate-pv text-xs text-slate-300 group-hover:text-slate-100"
+                title={pv}>
+            {label || pv}
+          </span>
+        </div>
+      );
+    }
+
+    // ── Device node ──────────────────────────────────────────────────────────
+
+    const TYPE_BADGE = {
+      motor:  { cls: 'bg-blue-700/80 text-blue-100',   label: 'MOT' },
+      analog: { cls: 'bg-green-700/80 text-green-100', label: 'AI/O' },
+      binary: { cls: 'bg-amber-700/80 text-amber-100', label: 'BI/O' },
+      waveform: { cls: 'bg-purple-700/80 text-purple-100', label: 'WF' },
+    };
+
+    function DeviceNode({ stKey, devName, pvs, selPVs, onTogglePV, expanded, onToggleExp, devType, pvLabels }) {
+      const total  = pvs.length;
+      const selCnt = pvs.filter(p => selPVs.has(p)).length;
+      const all    = selCnt === total && total > 0;
+      const some   = selCnt > 0 && !all;
+
+      const toggleAll = (e) => {
+        e.stopPropagation();
+        if (all) pvs.forEach(p => onTogglePV(p, false));
+        else     pvs.forEach(p => onTogglePV(p, true));
+      };
+
+      const badge = devType ? TYPE_BADGE[devType] : null;
+
+      return (
+        <div className="ml-3 mt-[1px]">
+          <div
+            onClick={() => onToggleExp(stKey)}
+            className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-slate-700/50 group"
+          >
+            <span className="text-slate-500 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+            <Tri checked={all} partial={some} onChange={toggleAll} />
+            <span className="text-sm text-slate-200 font-medium truncate flex-1" title={devName}>
+              {devName}
+            </span>
+            {badge && (
+              <span className={`text-[9px] px-1 py-0.5 rounded font-semibold shrink-0 ${badge.cls}`}>
+                {badge.label}
+              </span>
+            )}
+            <span className="text-[10px] text-slate-500 shrink-0 ml-1">{total}</span>
+          </div>
+          {expanded && (
+            <div className="ml-5 border-l border-slate-700/60 pl-1 pb-1">
+              {pvs.map(pv => (
+                <PVItem key={pv} pv={pv} selected={selPVs.has(pv)}
+                  onToggle={v => onTogglePV(pv, v === undefined ? !selPVs.has(pv) : v)}
+                  label={pvLabels?.[pv]} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Station node ─────────────────────────────────────────────────────────
+
+    function StationNode({ stName, devices, selPVs, onTogglePV, expanded, onToggleExp,
+                           expandedDevs, onToggleDev, stLabel, config }) {
+      const allPVs  = Object.values(devices).flat();
+      const selCnt  = allPVs.filter(p => selPVs.has(p)).length;
+      const all     = selCnt === allPVs.length && allPVs.length > 0;
+      const some    = selCnt > 0 && !all;
+      const devKeys = Object.keys(devices).sort();
+
+      const toggleAll = (e) => {
+        e.stopPropagation();
+        if (all) allPVs.forEach(p => onTogglePV(p, false));
+        else     allPVs.forEach(p => onTogglePV(p, true));
+      };
+
+      return (
+        <div className="mb-0.5">
+          <div
+            onClick={() => onToggleExp(stName)}
+            className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
+              bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/40`}
+          >
+            <span className="text-slate-400 text-[11px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+            <Tri checked={all} partial={some} onChange={toggleAll} />
+            <span className="text-sm font-bold text-slate-100 flex-1 truncate" title={stLabel || stName}>
+              {stLabel || stName}
+            </span>
+            <span className="text-[10px] text-slate-500 shrink-0">
+              {devKeys.length}d · {allPVs.length}p
+            </span>
+          </div>
+          {expanded && (
+            <div className="mt-0.5 ml-1">
+              {devKeys.map(dev => {
+                const devKey = `${stName}::${dev}`;
+                return (
+                  <DeviceNode
+                    key={dev}
+                    stKey={devKey}
+                    devName={dev}
+                    pvs={devices[dev]}
+                    selPVs={selPVs}
+                    onTogglePV={onTogglePV}
+                    expanded={expandedDevs.has(devKey)}
+                    onToggleExp={onToggleDev}
+                    devType={config?.deviceTypes?.[`${stName}:${dev}`]}
+                    pvLabels={config?.pvLabels}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Time range picker ─────────────────────────────────────────────────────
+
+    const PRESETS = [
+      { label: '1h',  ms: 3_600_000 },
+      { label: '8h',  ms: 28_800_000 },
+      { label: '24h', ms: 86_400_000 },
+      { label: '7d',  ms: 604_800_000 },
+      { label: '30d', ms: 2_592_000_000 },
+    ];
+
+    function TimeBar({ tr, onChange }) {
+      const apply = ms => {
+        const to   = new Date();
+        const from = new Date(to.getTime() - ms);
+        onChange({ from, to });
+      };
+      return (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {PRESETS.map(p => (
+            <button key={p.label} onClick={() => apply(p.ms)}
+              className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
+              {p.label}
+            </button>
+          ))}
+          <span className="text-slate-600 mx-1">|</span>
+          <input type="datetime-local" value={fmtDTLocal(tr.from)}
+            onChange={e => onChange({ ...tr, from: new Date(e.target.value) })}
+            className="text-xs bg-slate-800 border border-slate-600 text-slate-300 rounded px-2 py-1
+              focus:outline-none focus:border-blue-500" />
+          <span className="text-slate-400 text-xs">→</span>
+          <input type="datetime-local" value={fmtDTLocal(tr.to)}
+            onChange={e => onChange({ ...tr, to: new Date(e.target.value) })}
+            className="text-xs bg-slate-800 border border-slate-600 text-slate-300 rounded px-2 py-1
+              focus:outline-none focus:border-blue-500" />
+        </div>
+      );
+    }
+
+    // ── Selection tray ────────────────────────────────────────────────────────
+
+    function SelectionTray({ selPVs, onClear, onPlot }) {
+      const arr = [...selPVs];
+      if (arr.length === 0) return null;
+      return (
+        <div className="flex items-center gap-3 px-4 py-2 bg-blue-950/70 border-t border-blue-800/60 shrink-0">
+          <span className="text-sm font-semibold text-blue-300 shrink-0">
+            {arr.length} PV{arr.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex gap-1 flex-1 overflow-hidden">
+            {arr.slice(0, 6).map(pv => (
+              <span key={pv} className="text-[10px] pv-mono bg-blue-900 text-blue-200 px-1.5 py-0.5 rounded shrink-0">
+                {pv}
+              </span>
+            ))}
+            {arr.length > 6 && (
+              <span className="text-xs text-blue-400 shrink-0">+{arr.length - 6} more</span>
+            )}
+          </div>
+          <button onClick={onClear}
+            className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-700 transition-colors shrink-0">
+            Clear
+          </button>
+          <button onClick={onPlot}
+            className="text-sm font-semibold px-4 py-1.5 bg-blue-600 hover:bg-blue-500
+              text-white rounded transition-colors flex items-center gap-1.5 shrink-0">
+            ▶ Plot
+          </button>
+        </div>
+      );
+    }
+
+    // ── Config editor modal ───────────────────────────────────────────────────
+
+    const CONFIG_HELP = `{
+  "pvOverrides": {
+    "NON:STANDARD:PV": { "station": "25IDA", "device": "MyDevice" }
+  },
+  "stationLabels": {
+    "25IDA": "Station A — White Beam",
+    "25IDB": "Station B — Mono"
+  },
+  "deviceTypes": {
+    "25IDA:M1": "motor",
+    "25IDA:VALVE1": "binary",
+    "25IDA:ION1": "analog",
+    "25IDA:BPM1": "waveform"
+  },
+  "pvLabels": {
+    "25IDA:M1:RBV": "Sample X position"
+  },
+  "hiddenPVs": ["NOISY:PV:NAME"],
+  "viewerBaseUrl": "http://164.54.169.92:17665/viewer/index.html",
+  "viewerUrlFormat": "query"
+}`;
+
+    function ConfigModal({ config, onSave, onClose }) {
+      const [text, setText]   = useState(JSON.stringify(config, null, 2));
+      const [err,  setErr]    = useState('');
+      const [dirty, setDirty] = useState(false);
+
+      const handleChange = v => { setText(v); setDirty(true); setErr(''); };
+
+      const handleSave = () => {
+        try {
+          const parsed = JSON.parse(text);
+          setErr('');
+          onSave(parsed);
+        } catch (e) {
+          setErr(`JSON syntax error: ${e.message}`);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 shrink-0">
+              <h2 className="text-slate-100 font-bold text-lg">⚙ Configuration</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-100 text-2xl leading-none">×</button>
+            </div>
+
+            <div className="flex flex-col gap-3 px-5 py-4 overflow-y-auto flex-1">
+              <details className="group">
+                <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200 select-none">
+                  Show format reference ▶
+                </summary>
+                <pre className="mt-2 text-xs text-slate-400 bg-slate-900 p-3 rounded overflow-x-auto border border-slate-700">
+                  {CONFIG_HELP}
+                </pre>
+              </details>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">overrides.json</label>
+                  {dirty && <span className="text-xs text-amber-400">unsaved changes</span>}
+                </div>
+                <textarea
+                  value={text}
+                  onChange={e => handleChange(e.target.value)}
+                  spellCheck={false}
+                  className="w-full h-72 bg-slate-900 text-green-300 pv-mono text-xs p-3 rounded
+                    border border-slate-600 focus:outline-none focus:border-blue-500 resize-y"
+                />
+                {err && <p className="text-red-400 text-xs mt-1">{err}</p>}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-700 shrink-0">
+              <button onClick={onClose}
+                className="text-sm px-4 py-1.5 text-slate-400 hover:text-slate-200 rounded
+                  hover:bg-slate-700 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSave}
+                className="text-sm font-semibold px-5 py-1.5 bg-blue-600 hover:bg-blue-500
+                  text-white rounded transition-colors">
+                Save & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Empty / viewer panel ──────────────────────────────────────────────────
+
+    function EmptyState({ selCount }) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-slate-500 select-none">
+          <div className="text-7xl mb-5 opacity-40">📈</div>
+          {selCount === 0 ? (
+            <>
+              <p className="text-lg font-semibold text-slate-400">Select PVs to plot</p>
+              <p className="text-sm mt-1">Use the sidebar to browse and check PVs,<br/>then click ▶ Plot</p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-semibold text-slate-400">{selCount} PVs ready</p>
+              <p className="text-sm mt-1">Click ▶ Plot to open the Archiver Viewer</p>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // ── Main App ─────────────────────────────────────────────────────────────
+
+    function App() {
+      const [pvList,         setPvList]       = useState([]);
+      const [config,         setConfig]       = useState({});
+      const [selPVs,         setSelPVs]       = useState(new Set());
+      const [search,         setSearch]       = useState('');
+      const [expStations,    setExpStations]  = useState(new Set());
+      const [expDevices,     setExpDevices]   = useState(new Set());
+      const [tr,             setTr]           = useState(() => ({
+        from: new Date(Date.now() - 3_600_000),
+        to:   new Date(),
+      }));
+      const [viewerUrl,      setViewerUrl]    = useState(null);
+      const [viewerKey,      setViewerKey]    = useState(0);
+      const [loading,        setLoading]      = useState(true);
+      const [fetchErr,       setFetchErr]     = useState(null);
+      const [showConfig,     setShowConfig]   = useState(false);
+
+      // ── Bootstrap ──
+      useEffect(() => {
+        Promise.all([
+          fetch('/api/pvs').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+          fetch('/api/config').then(r => r.json()),
+        ]).then(([pvs, cfg]) => {
+          setPvList(Array.isArray(pvs) ? pvs.slice().sort() : []);
+          setConfig(cfg || {});
+          setLoading(false);
+        }).catch(e => {
+          setFetchErr(e.message);
+          setLoading(false);
+        });
+      }, []);
+
+      // ── Derived state ──
+      const grouped  = useMemo(() => groupPVs(pvList, config), [pvList, config]);
+      const filtered = useMemo(() => filterGroups(grouped, search), [grouped, search]);
+      const stations = useMemo(() => Object.keys(filtered).sort(), [filtered]);
+
+      // auto-expand when searching
+      useEffect(() => {
+        if (!search.trim()) return;
+        const sts  = new Set(Object.keys(filtered));
+        const devs = new Set();
+        for (const [st, devMap] of Object.entries(filtered)) {
+          for (const dev of Object.keys(devMap)) devs.add(`${st}::${dev}`);
+        }
+        setExpStations(sts);
+        setExpDevices(devs);
+      }, [search]);
+
+      // ── Handlers ──
+      const togglePV = useCallback((pv, forceOn) => {
+        setSelPVs(prev => {
+          const next = new Set(prev);
+          const on = forceOn === undefined ? !next.has(pv) : forceOn;
+          if (on) next.add(pv); else next.delete(pv);
+          return next;
+        });
+      }, []);
+
+      const toggleStation = useCallback(st => {
+        setExpStations(prev => { const n = new Set(prev); n.has(st) ? n.delete(st) : n.add(st); return n; });
+      }, []);
+
+      const toggleDevice = useCallback(dk => {
+        setExpDevices(prev => { const n = new Set(prev); n.has(dk) ? n.delete(dk) : n.add(dk); return n; });
+      }, []);
+
+      const handlePlot = useCallback(() => {
+        if (selPVs.size === 0) return;
+        const url = buildViewerUrl([...selPVs], tr.from, tr.to, config);
+        setViewerUrl(url);
+        setViewerKey(k => k + 1);
+      }, [selPVs, tr, config]);
+
+      const handleSaveConfig = useCallback(async (newCfg) => {
+        try {
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newCfg),
+          });
+          setConfig(newCfg);
+          setShowConfig(false);
+        } catch (e) {
+          alert(`Failed to save config: ${e.message}`);
+        }
+      }, []);
+
+      // ── Render ──
+      return (
+        <div className="flex flex-col h-full bg-slate-900">
+
+          {/* ── Header ── */}
+          <header className="flex items-center gap-4 px-4 py-2 bg-slate-950 border-b border-slate-700 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-blue-400 font-bold text-base tracking-tight">⚛ AR Viewer</span>
+              <span className="hidden lg:block text-slate-500 text-xs">Beamline PV Browser</span>
+            </div>
+
+            <div className="flex-1 flex items-center">
+              <TimeBar tr={tr} onChange={setTr} />
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {viewerUrl && (
+                <a href={viewerUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded
+                    hover:bg-slate-700 transition-colors" title="Open viewer in new tab">
+                  ↗ New Tab
+                </a>
+              )}
+              <button onClick={() => setShowConfig(true)}
+                className="text-xs px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
+                ⚙ Config
+              </button>
+            </div>
+          </header>
+
+          {/* ── Body ── */}
+          <div className="flex flex-1 min-h-0">
+
+            {/* ── Sidebar ── */}
+            <aside className="w-80 flex flex-col bg-slate-900 border-r border-slate-700 shrink-0">
+
+              {/* search */}
+              <div className="px-3 py-2 border-b border-slate-700/60 shrink-0">
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1.5 text-slate-500 text-xs pointer-events-none">🔍</span>
+                  <input
+                    type="text" value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Filter PVs…"
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-200
+                      placeholder-slate-500 text-sm rounded px-3 py-1 pl-7
+                      focus:outline-none focus:border-blue-500" />
+                </div>
+                <div className="flex justify-between mt-1 px-0.5">
+                  <span className="text-[10px] text-slate-500">{pvList.length.toLocaleString()} PVs archived</span>
+                  {selPVs.size > 0 && (
+                    <button onClick={() => setSelPVs(new Set())}
+                      className="text-[10px] text-blue-400 hover:text-blue-300">
+                      Clear {selPVs.size} selected
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* tree */}
+              <div className="flex-1 overflow-y-auto p-2">
+                {loading && (
+                  <div className="flex items-center justify-center h-32">
+                    <span className="text-slate-500 text-sm animate-pulse">Loading PVs…</span>
+                  </div>
+                )}
+                {fetchErr && (
+                  <div className="m-2 p-3 bg-red-900/30 border border-red-700/40 rounded text-red-400 text-xs">
+                    <p className="font-semibold mb-1">Could not reach archiver</p>
+                    <p className="opacity-80">{fetchErr}</p>
+                  </div>
+                )}
+                {!loading && !fetchErr && stations.length === 0 && (
+                  <p className="text-slate-500 text-sm text-center p-6">
+                    {search ? 'No matching PVs' : 'No PVs found'}
+                  </p>
+                )}
+                {stations.map(st => (
+                  <StationNode
+                    key={st}
+                    stName={st}
+                    devices={filtered[st]}
+                    selPVs={selPVs}
+                    onTogglePV={togglePV}
+                    expanded={expStations.has(st)}
+                    onToggleExp={toggleStation}
+                    expandedDevs={expDevices}
+                    onToggleDev={toggleDevice}
+                    stLabel={config?.stationLabels?.[st]}
+                    config={config}
+                  />
+                ))}
+              </div>
+            </aside>
+
+            {/* ── Main viewer ── */}
+            <main className="flex-1 flex flex-col min-w-0 bg-slate-950">
+              {viewerUrl ? (
+                <iframe
+                  key={viewerKey}
+                  src={viewerUrl}
+                  title="Archiver Viewer"
+                  className="flex-1 w-full border-none bg-white"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                />
+              ) : (
+                <EmptyState selCount={selPVs.size} />
+              )}
+            </main>
+          </div>
+
+          {/* ── Selection tray ── */}
+          <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} />
+
+          {/* ── Config modal ── */}
+          {showConfig && (
+            <ConfigModal config={config} onSave={handleSaveConfig} onClose={() => setShowConfig(false)} />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

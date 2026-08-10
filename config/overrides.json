@@ -1,0 +1,8 @@
+{
+  "pvOverrides": {},
+  "stationLabels": {},
+  "deviceTypes": {},
+  "hiddenPVs": [],
+  "viewerBaseUrl": "http://164.54.169.92:17665/viewer/index.html",
+  "viewerUrlFormat": "query"
+}
