@@ -5,8 +5,8 @@ Wants=network.target archappl.service
 
 [Service]
 Type=simple
-User=beamline
-Group=beamline
+User=chem_epics
+Group=chem_epics
 
 # ── Adjust these two paths to match your installation ──
 WorkingDirectory=/usr/local/epics/archiver-viewer
