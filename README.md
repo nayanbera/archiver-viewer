@@ -40,10 +40,17 @@ cd archiver-viewer
 
 ---
 
-### Step 2 — Install Python dependencies
+### Step 2 — Create the conda environment
 
 ```bash
-pip install -r requirements.txt
+conda env create -f environment.yml
+```
+
+This creates an environment named **`archiver-viewer`** with Python 3.11 and all dependencies.  
+Only needs to be done once. To update dependencies later:
+
+```bash
+conda env update -f environment.yml --prune
 ```
 
 ---
@@ -51,6 +58,7 @@ pip install -r requirements.txt
 ### Step 3 — Test it manually
 
 ```bash
+conda activate archiver-viewer
 python app.py
 ```
 
@@ -65,15 +73,16 @@ Press **Ctrl+C** to stop.
 **4a. Edit `arviewer.service`** — update these three lines to match your system:
 
 ```ini
-User=beamline                                   # Linux user that runs the app
-WorkingDirectory=/opt/archiver-viewer           # full path to the cloned repo
-ExecStart=/opt/anaconda3/bin/python app.py      # full path to your Python binary
+User=beamline                                                        # Linux user that runs the app
+WorkingDirectory=/opt/archiver-viewer                                # full path to the cloned repo
+ExecStart=/opt/anaconda3/envs/archiver-viewer/bin/python app.py     # Python inside the conda env
 ```
 
-Find your Python path with:
+Find the exact path to the conda env's Python with:
 
 ```bash
-which python   # or: which python3
+conda activate archiver-viewer
+which python
 ```
 
 **4b. Copy the repo and install the service:**
@@ -150,7 +159,7 @@ journalctl -u arviewer -f
 ```bash
 cd /opt/archiver-viewer
 git pull
-pip install -r requirements.txt
+conda env update -f environment.yml --prune
 sudo systemctl restart arviewer
 ```
 

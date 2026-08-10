@@ -10,7 +10,7 @@ Group=beamline
 
 # ── Adjust these two paths to match your installation ──
 WorkingDirectory=/opt/archiver-viewer
-ExecStart=/opt/anaconda3/bin/python app.py
+ExecStart=/opt/anaconda3/envs/archiver-viewer/bin/python app.py
 
 Restart=always
 RestartSec=5
