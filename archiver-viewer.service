@@ -1,7 +1,7 @@
 [Unit]
 Description=Archiver Viewer — Beamline PV Browser
-After=network.target
-Wants=network.target
+After=network.target archappl.service
+Wants=network.target archappl.service
 
 [Service]
 Type=simple
