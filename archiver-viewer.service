@@ -9,8 +9,8 @@ User=beamline
 Group=beamline
 
 # ── Adjust these two paths to match your installation ──
-WorkingDirectory=/opt/archiver-viewer
-ExecStart=/opt/anaconda3/envs/archiver-viewer/bin/python app.py
+WorkingDirectory=/usr/local/epics/archiver-viewer
+ExecStart=/home/chem_epics/anaconda3/envs/archiver-viewer/bin/python app.py
 
 Restart=always
 RestartSec=5
@@ -19,7 +19,7 @@ RestartSec=5
 Environment="PORT=8080"
 Environment="ARCHIVER_MGMT_URL=http://164.54.169.92:17665"
 Environment="ARCHIVER_RETRIEVAL_URL=http://164.54.169.92:17668"
-Environment="CONFIG_PATH=/opt/archiver-viewer/config/overrides.json"
+Environment="CONFIG_PATH=/usr/local/epics/archiver-viewer/config/overrides.json"
 
 # Logging goes to journald (use: journalctl -u archiver-viewer -f)
 StandardOutput=journal
