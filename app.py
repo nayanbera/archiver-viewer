@@ -129,22 +129,38 @@ async def get_pv_data(request: Request):
 
 @app.get("/api/csv")
 async def download_csv(request: Request):
-    """Fetch raw PV data in parallel via getData.json, merge into wide-format CSV."""
+    """Fetch PV data in parallel, merge into wide-format CSV.
+
+    Uses the same mean_N decimation as /api/data by default so the exported
+    values match what is plotted.  Pass raw=true to get every archived sample.
+    """
     import asyncio, csv, io
     from collections import defaultdict
     from datetime import datetime, timezone
 
-    pvs   = request.query_params.getlist("pv")
-    from_ = request.query_params.get("from")
-    to    = request.query_params.get("to")
+    pvs    = request.query_params.getlist("pv")
+    from_  = request.query_params.get("from")
+    to     = request.query_params.get("to")
+    points = int(request.query_params.get("points", "1200"))
+    raw    = request.query_params.get("raw", "false").lower() == "true"
     if not pvs or not from_ or not to:
         raise HTTPException(status_code=400, detail="Provide at least one pv=, from=, and to= param")
 
+    # Same decimation logic as /api/data
+    try:
+        from_dt = datetime.fromisoformat(from_.replace("Z", "+00:00"))
+        to_dt   = datetime.fromisoformat(to.replace("Z", "+00:00"))
+        bin_s   = int((to_dt - from_dt).total_seconds() / points)
+    except Exception:
+        bin_s = 0
+    use_mean = not raw and bin_s >= 2
+
     async def fetch_one_csv(client: httpx.AsyncClient, pv: str):
         try:
+            pv_query = f"mean_{bin_s}({pv})" if use_mean else pv
             r = await client.get(
                 f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
-                params={"pv": pv, "from": from_, "to": to},
+                params={"pv": pv_query, "from": from_, "to": to},
             )
             r.raise_for_status()
             payload = r.json()
@@ -155,8 +171,12 @@ async def download_csv(request: Request):
                         d["secs"] + d.get("nanos", 0) / 1e9,
                         tz=timezone.utc,
                     ).isoformat()
-                    rows.append((ts, d["val"]))
-            log.info("CSV fetch: %s → %d samples", pv, len(rows))
+                    val = d.get("val")
+                    if val is None:
+                        continue
+                    rows.append((ts, val[0] if isinstance(val, list) else val))
+            mode = "raw" if not use_mean else f"mean_{bin_s}"
+            log.info("CSV fetch: %s → %d samples (%s)", pv, len(rows), mode)
             return pv, rows
         except Exception as exc:
             log.warning("CSV fetch failed for %s: %s", pv, exc)

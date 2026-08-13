@@ -38,9 +38,10 @@ function JsonModal({ config, onSave, onClose }) {
 
 function CsvDialog({ defaultFilename, onDownload, onClose }) {
   const [filename, setFilename] = useState(defaultFilename);
+  const [rawData,  setRawData]  = useState(false);
   const submit = () => {
     const name = filename.trim() || defaultFilename;
-    onDownload(name.endsWith('.csv') ? name : name + '.csv');
+    onDownload(name.endsWith('.csv') ? name : name + '.csv', rawData);
     onClose();
   };
   return (
@@ -54,6 +55,12 @@ function CsvDialog({ defaultFilename, onDownload, onClose }) {
             className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
           <p className="text-[11px] text-gray-400 mt-1">Your browser will ask where to save the file.</p>
         </div>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={rawData} onChange={e => setRawData(e.target.checked)}
+            className="accent-blue-600" />
+          <span className="text-sm text-gray-700">Export all raw samples</span>
+          <span className="text-[11px] text-gray-400">(default: matches plot decimation)</span>
+        </label>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200 transition-colors">Cancel</button>
           <button onClick={submit} className="text-sm font-semibold px-5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded transition-colors">Download</button>
@@ -226,10 +233,13 @@ export default function App() {
 
   // ── CSV ────────────────────────────────────────────────────────────────
   const handleDownloadCsv = useCallback(() => { if (selPVs.size) setCsvDialog(true); }, [selPVs]);
-  const triggerCsvDownload = useCallback(filename => {
+  const triggerCsvDownload = useCallback((filename, raw = false) => {
     const params = new URLSearchParams();
     [...selPVs].forEach(pv => params.append('pv', pv));
-    params.set('from', tr.from.toISOString()); params.set('to', tr.to.toISOString());
+    params.set('from', tr.from.toISOString());
+    params.set('to',   tr.to.toISOString());
+    params.set('points', '1200');
+    if (raw) params.set('raw', 'true');
     const a = document.createElement('a');
     a.href = `/api/csv?${params}`; a.download = filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
