@@ -3,10 +3,10 @@ import { groupPVs, filterGroups, buildViewerUrl } from './utils';
 import StationNode      from './components/StationNode';
 import TimeBar          from './components/TimeBar';
 import SelectionTray    from './components/SelectionTray';
-import SearchModal      from './components/SearchModal';
 import GroupsModal      from './components/GroupsModal';
 import PlotView         from './components/PlotView';
 import AnnotationPanel  from './components/AnnotationPanel';
+import Checkbox         from './components/Checkbox';
 
 function JsonModal({ config, onSave, onClose }) {
   const [text, setText] = useState(JSON.stringify(config, null, 2));
@@ -50,8 +50,7 @@ function CsvDialog({ defaultFilename, onDownload, onClose }) {
         <div>
           <label className="text-xs text-gray-500 block mb-1">Filename</label>
           <input value={filename} onChange={e => setFilename(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && submit()}
-            autoFocus
+            onKeyDown={e => e.key === 'Enter' && submit()} autoFocus
             className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
           <p className="text-[11px] text-gray-400 mt-1">Your browser will ask where to save the file.</p>
         </div>
@@ -64,32 +63,35 @@ function CsvDialog({ defaultFilename, onDownload, onClose }) {
   );
 }
 
+const GLOB_EXAMPLES  = ['15IDA:*', '*:M1:*', '*BeamPos*'];
+const REGEX_EXAMPLES = ['15IDA:.*', '.*:M\\d+:.*', '.*BeamPos.*'];
+
 export default function App() {
-  const [pvList,    setPvList]    = useState([]);
-  const [config,    setConfig]    = useState({});
-  const [selPVs,    setSelPVs]    = useState(new Set());
-  const [search,    setSearch]    = useState('');
-  const [expSt,     setExpSt]     = useState(new Set());
-  const [expDev,    setExpDev]    = useState(new Set());
-  const [tr,        setTr]        = useState(() => ({
+  const [pvList,   setPvList]   = useState([]);
+  const [config,   setConfig]   = useState({});
+  const [selPVs,   setSelPVs]   = useState(new Set());
+  const [expSt,    setExpSt]    = useState(new Set());
+  const [expDev,   setExpDev]   = useState(new Set());
+  const [tr,       setTr]       = useState(() => ({
     from: new Date(Date.now() - 3_600_000), to: new Date(),
   }));
-  const [loading,   setLoading]   = useState(true);
-  const [fetchErr,  setFetchErr]  = useState(null);
-  const [modal,     setModal]     = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [fetchErr, setFetchErr] = useState(null);
+  const [modal,    setModal]    = useState(null);
+
+  // ── unified sidebar search ─────────────────────────────────────────────
+  const [searchMode,    setSearchMode]    = useState('filter'); // 'filter'|'glob'|'regex'
+  const [searchQuery,   setSearchQuery]   = useState('');
+  const [searchResults, setSearchResults] = useState(null);    // null = not yet searched
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError,   setSearchError]   = useState('');
 
   // ── view mode ──────────────────────────────────────────────────────────
-  const [viewMode,  setViewMode]  = useState('plotly'); // 'plotly' | 'aa'
-
-  // ── plotly state ───────────────────────────────────────────────────────
+  const [viewMode,  setViewMode]  = useState('plotly');
   const [plotPvs,   setPlotPvs]   = useState([]);
   const [plotKey,   setPlotKey]   = useState(0);
-
-  // ── AA viewer state (preserved) ────────────────────────────────────────
   const [viewerUrl, setViewerUrl] = useState(null);
   const [viewerKey, setViewerKey] = useState(0);
-
-  // ── CSV dialog ─────────────────────────────────────────────────────────
   const [csvDialog, setCsvDialog] = useState(false);
 
   useEffect(() => {
@@ -103,19 +105,58 @@ export default function App() {
     }).catch(e => { setFetchErr(e.message); setLoading(false); });
   }, []);
 
+  // ── filter-mode tree ───────────────────────────────────────────────────
+  const filterQuery = searchMode === 'filter' ? searchQuery : '';
   const grouped  = useMemo(() => groupPVs(pvList, config), [pvList, config]);
-  const filtered = useMemo(() => filterGroups(grouped, search), [grouped, search]);
+  const filtered = useMemo(() => filterGroups(grouped, filterQuery), [grouped, filterQuery]);
   const stations = useMemo(() => Object.keys(filtered).sort(), [filtered]);
 
   useEffect(() => {
-    if (!search.trim()) return;
+    if (searchMode !== 'filter' || !filterQuery.trim()) return;
     setExpSt(new Set(Object.keys(filtered)));
     const devs = new Set();
     for (const [st, devMap] of Object.entries(filtered))
       for (const dev of Object.keys(devMap)) devs.add(`${st}::${dev}`);
     setExpDev(devs);
-  }, [search]);
+  }, [filterQuery, searchMode]);
 
+  // ── regex: live filtering ──────────────────────────────────────────────
+  useEffect(() => {
+    if (searchMode !== 'regex') return;
+    if (!searchQuery.trim()) { setSearchResults(null); setSearchError(''); return; }
+    try {
+      const re = new RegExp(searchQuery.trim(), 'i');
+      setSearchResults(pvList.filter(pv => re.test(pv)).sort());
+      setSearchError('');
+    } catch (e) {
+      setSearchError(`Invalid regex: ${e.message}`);
+      setSearchResults([]);
+    }
+  }, [searchQuery, searchMode, pvList]);
+
+  // ── glob: search on Enter / button ────────────────────────────────────
+  const runGlobSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setSearchLoading(true); setSearchError(''); setSearchResults(null);
+    try {
+      const r = await fetch(`/api/search?pattern=${encodeURIComponent(searchQuery.trim())}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setSearchResults(await r.json());
+    } catch (e) {
+      setSearchError(e.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchQuery]);
+
+  const changeMode = useCallback(m => {
+    setSearchMode(m);
+    setSearchQuery('');
+    setSearchResults(null);
+    setSearchError('');
+  }, []);
+
+  // ── PV toggle helpers ──────────────────────────────────────────────────
   const togglePV  = useCallback((pv, forceOn) => {
     setSelPVs(prev => {
       const n = new Set(prev);
@@ -124,40 +165,43 @@ export default function App() {
       return n;
     });
   }, []);
-
   const toggleSt  = useCallback(st => setExpSt(prev => { const n=new Set(prev); n.has(st)?n.delete(st):n.add(st); return n; }), []);
   const toggleDev = useCallback(dk => setExpDev(prev => { const n=new Set(prev); n.has(dk)?n.delete(dk):n.add(dk); return n; }), []);
+
+  const toggleAllResults = useCallback(() => {
+    if (!searchResults?.length) return;
+    const allSel = searchResults.every(pv => selPVs.has(pv));
+    setSelPVs(prev => {
+      const n = new Set(prev);
+      if (allSel) searchResults.forEach(pv => n.delete(pv));
+      else        searchResults.forEach(pv => n.add(pv));
+      return n;
+    });
+  }, [searchResults, selPVs]);
 
   // ── plot ───────────────────────────────────────────────────────────────
   const handlePlot = useCallback(() => {
     if (selPVs.size === 0) return;
     if (viewMode === 'plotly') {
-      setPlotPvs([...selPVs]);
-      setPlotKey(k => k + 1);
+      setPlotPvs([...selPVs]); setPlotKey(k => k + 1);
     } else {
       setViewerUrl(buildViewerUrl([...selPVs], tr.from, tr.to, config));
       setViewerKey(k => k + 1);
     }
   }, [selPVs, tr, config, viewMode]);
 
-  // auto-plot when a time preset is clicked (only if PVs are available)
-  const handlePresetClick = useCallback(newTr => {
+  const handlePresetClick = useCallback(() => {
     if (viewMode !== 'plotly') return;
     const pvsToPlot = selPVs.size > 0 ? [...selPVs] : plotPvs;
-    if (pvsToPlot.length === 0) return;
-    setPlotPvs(pvsToPlot);
-    setPlotKey(k => k + 1);
+    if (!pvsToPlot.length) return;
+    setPlotPvs(pvsToPlot); setPlotKey(k => k + 1);
   }, [viewMode, selPVs, plotPvs]);
 
-  // ── config persistence ─────────────────────────────────────────────────
+  // ── config ─────────────────────────────────────────────────────────────
   const persistConfig = useCallback(async newCfg => {
-    await fetch('/api/config', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCfg),
-    });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newCfg) });
     setConfig(newCfg);
   }, []);
-
   const saveConfig = useCallback(async newCfg => {
     try { await persistConfig(newCfg); setModal(null); }
     catch (e) { alert(`Failed to save: ${e.message}`); }
@@ -165,71 +209,55 @@ export default function App() {
 
   // ── annotations ────────────────────────────────────────────────────────
   const annotations = config.annotations || [];
-
   const addAnnotation = useCallback(async ann => {
-    try {
-      await persistConfig({ ...config, annotations: [...annotations, ann] });
-    } catch (e) { alert(`Failed to save annotation: ${e.message}`); }
+    try { await persistConfig({ ...config, annotations: [...annotations, ann] }); }
+    catch (e) { alert(`Failed to save annotation: ${e.message}`); }
   }, [config, annotations, persistConfig]);
-
   const deleteAnnotation = useCallback(async id => {
-    try {
-      await persistConfig({ ...config, annotations: annotations.filter(a => a.id !== id) });
-    } catch (e) { alert(`Failed to delete annotation: ${e.message}`); }
+    try { await persistConfig({ ...config, annotations: annotations.filter(a => a.id !== id) }); }
+    catch (e) { alert(`Failed to delete annotation: ${e.message}`); }
   }, [config, annotations, persistConfig]);
-
   const clickAnnotation = useCallback(ann => {
     if (!ann.timeRange) return;
-    const newTr = { from: new Date(ann.timeRange.from), to: new Date(ann.timeRange.to) };
-    setTr(newTr);
-    setPlotPvs(ann.pvs || []);
-    setPlotKey(k => k + 1);
+    setTr({ from: new Date(ann.timeRange.from), to: new Date(ann.timeRange.to) });
+    setPlotPvs(ann.pvs || []); setPlotKey(k => k + 1);
     if (viewMode !== 'plotly') setViewMode('plotly');
   }, [viewMode]);
 
-  // ── CSV download ───────────────────────────────────────────────────────
-  const handleDownloadCsv = useCallback(() => {
-    if (selPVs.size === 0) return;
-    setCsvDialog(true);
-  }, [selPVs]);
-
+  // ── CSV ────────────────────────────────────────────────────────────────
+  const handleDownloadCsv = useCallback(() => { if (selPVs.size) setCsvDialog(true); }, [selPVs]);
   const triggerCsvDownload = useCallback(filename => {
     const params = new URLSearchParams();
     [...selPVs].forEach(pv => params.append('pv', pv));
-    params.set('from', tr.from.toISOString());
-    params.set('to',   tr.to.toISOString());
+    params.set('from', tr.from.toISOString()); params.set('to', tr.to.toISOString());
     const a = document.createElement('a');
-    a.href = `/api/csv?${params}`;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = `/api/csv?${params}`; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }, [selPVs, tr]);
 
-  const addToSelection = useCallback(pvs => {
-    setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; });
-  }, []);
+  // ── derived search UI ──────────────────────────────────────────────────
+  const allResultsSel  = searchResults?.length > 0 && searchResults.every(pv => selPVs.has(pv));
+  const someResultsSel = searchResults?.some(pv => selPVs.has(pv)) && !allResultsSel;
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
 
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* Header */}
       <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0 shadow-sm">
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-blue-600 font-bold text-base tracking-tight">⚛ Archiver Viewer</span>
           <span className="hidden lg:block text-gray-400 text-xs">Beamline PV Browser</span>
         </div>
-        <div className="flex-1 flex items-center"><TimeBar tr={tr} onChange={setTr} onPresetClick={handlePresetClick} /></div>
+        <div className="flex-1 flex items-center">
+          <TimeBar tr={tr} onChange={setTr} onPresetClick={handlePresetClick} />
+        </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* view mode toggle */}
           <div className="flex rounded border border-gray-200 overflow-hidden">
             {[['plotly','📊 Plotly'],['aa','🔗 AA Viewer']].map(([m, label]) => (
               <button key={m} onClick={() => setViewMode(m)}
                 className={`text-xs px-2.5 py-1 transition-colors ${
-                  viewMode === m
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-500 hover:bg-gray-50 border-l border-gray-200 first:border-l-0'
-                }`}>
+                  viewMode === m ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50 border-l border-gray-200 first:border-l-0'}`}>
                 {label}
               </button>
             ))}
@@ -244,10 +272,6 @@ export default function App() {
             className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
             + AA Mgmt
           </a>
-          <button onClick={() => setModal('search')}
-            className="text-xs px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors font-medium">
-            🔎 Search PVs
-          </button>
           <button onClick={() => setModal('groups')}
             className="text-xs px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 rounded border border-gray-200 transition-colors">
             ⊞ Groups
@@ -259,18 +283,71 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Body ────────────────────────────────────────────────────────── */}
+      {/* Body */}
       <div className="flex flex-1 min-h-0">
 
         {/* Sidebar */}
         <aside className="w-80 flex flex-col bg-white border-r border-gray-200 shrink-0">
-          <div className="px-3 py-2 border-b border-gray-100 shrink-0">
-            <div className="relative">
-              <span className="absolute left-2.5 top-1.5 text-gray-400 text-xs pointer-events-none">🔍</span>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter PVs…"
-                className="w-full bg-gray-50 border border-gray-200 text-gray-800 placeholder-gray-400 text-sm rounded px-3 py-1 pl-7 focus:outline-none focus:border-blue-400" />
+
+          {/* Search controls */}
+          <div className="px-3 pt-2 pb-1.5 border-b border-gray-100 shrink-0 space-y-1.5">
+
+            {/* Mode toggle */}
+            <div className="flex gap-1">
+              {[['filter','Filter'],['glob','Glob'],['regex','Regex']].map(([m, label]) => (
+                <button key={m} onClick={() => changeMode(m)}
+                  className={`text-xs px-2.5 py-0.5 rounded border font-medium transition-colors ${
+                    searchMode === m
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                  {label}
+                </button>
+              ))}
+              <span className="text-[10px] text-gray-400 self-center ml-1">
+                {searchMode === 'filter' ? 'live tree filter'
+                  : searchMode === 'glob'   ? 'archiver pattern · Enter'
+                  : 'local regex · live'}
+              </span>
             </div>
-            <div className="flex justify-between mt-1 px-0.5">
+
+            {/* Input row */}
+            <div className="flex gap-1">
+              <div className="relative flex-1">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">🔍</span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => searchMode === 'glob' && e.key === 'Enter' && runGlobSearch()}
+                  placeholder={
+                    searchMode === 'filter' ? 'Filter station · device · PV…'
+                    : searchMode === 'glob'  ? 'e.g. 15IDA:* or *BeamPos*'
+                    :                          'e.g. .*:M\\d+:.* (case-insensitive)'}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-800 placeholder-gray-400 text-sm rounded px-3 py-1 pl-7 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              {searchMode === 'glob' && (
+                <button onClick={runGlobSearch} disabled={searchLoading || !searchQuery.trim()}
+                  className="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors disabled:opacity-40 shrink-0">
+                  {searchLoading ? '…' : 'Search'}
+                </button>
+              )}
+            </div>
+
+            {/* Example chips for glob/regex */}
+            {searchMode !== 'filter' && (
+              <div className="flex gap-1 flex-wrap">
+                {(searchMode === 'glob' ? GLOB_EXAMPLES : REGEX_EXAMPLES).map(ex => (
+                  <button key={ex} onClick={() => setSearchQuery(ex)}
+                    className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded border border-gray-200 transition-colors">
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Status row */}
+            <div className="flex justify-between px-0.5">
               <span className="text-[10px] text-gray-400">{pvList.length.toLocaleString()} PVs archived</span>
               {selPVs.size > 0 && (
                 <button onClick={() => setSelPVs(new Set())} className="text-[10px] text-blue-500 hover:text-blue-700">
@@ -279,39 +356,86 @@ export default function App() {
               )}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {loading && <div className="flex items-center justify-center h-32"><span className="text-gray-400 text-sm animate-pulse">Loading PVs…</span></div>}
-            {fetchErr && (
-              <div className="m-2 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-xs">
-                <p className="font-semibold mb-1">Could not reach archiver</p>
-                <p className="opacity-80">{fetchErr}</p>
-              </div>
-            )}
-            {!loading && !fetchErr && stations.length === 0 && (
-              <p className="text-gray-400 text-sm text-center p-6">{search ? 'No matching PVs' : 'No PVs found'}</p>
-            )}
-            {stations.map(st => (
-              <StationNode key={st} stName={st} devices={filtered[st]}
-                selPVs={selPVs} onTogglePV={togglePV}
-                expanded={expSt.has(st)} onToggleExp={toggleSt}
-                expandedDevs={expDev} onToggleDev={toggleDev}
-                stLabel={config?.stationLabels?.[st]} config={config} />
-            ))}
-          </div>
+
+          {/* Sidebar body */}
+          {searchMode === 'filter' ? (
+            <div className="flex-1 overflow-y-auto p-2">
+              {loading && <div className="flex items-center justify-center h-32"><span className="text-gray-400 text-sm animate-pulse">Loading PVs…</span></div>}
+              {fetchErr && (
+                <div className="m-2 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-xs">
+                  <p className="font-semibold mb-1">Could not reach archiver</p>
+                  <p className="opacity-80">{fetchErr}</p>
+                </div>
+              )}
+              {!loading && !fetchErr && stations.length === 0 && (
+                <p className="text-gray-400 text-sm text-center p-6">{filterQuery ? 'No matching PVs' : 'No PVs found'}</p>
+              )}
+              {stations.map(st => (
+                <StationNode key={st} stName={st} devices={filtered[st]}
+                  selPVs={selPVs} onTogglePV={togglePV}
+                  expanded={expSt.has(st)} onToggleExp={toggleSt}
+                  expandedDevs={expDev} onToggleDev={toggleDev}
+                  stLabel={config?.stationLabels?.[st]} config={config} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {/* Error */}
+              {searchError && (
+                <div className="m-2 p-2 bg-red-50 border border-red-200 rounded text-red-600 text-xs">{searchError}</div>
+              )}
+              {/* Loading */}
+              {searchLoading && (
+                <div className="flex items-center justify-center h-24">
+                  <span className="text-gray-400 text-sm animate-pulse">Searching archiver…</span>
+                </div>
+              )}
+              {/* Empty prompt */}
+              {!searchLoading && !searchError && searchResults === null && (
+                <div className="flex items-center justify-center h-24 px-4">
+                  <p className="text-xs text-gray-400 text-center">
+                    {searchMode === 'glob' ? 'Enter a pattern and press Search or Enter'
+                      : 'Start typing to filter all archived PVs'}
+                  </p>
+                </div>
+              )}
+              {/* No results */}
+              {!searchLoading && searchResults?.length === 0 && (
+                <p className="text-xs text-gray-400 text-center p-6">No PVs matched</p>
+              )}
+              {/* Results */}
+              {searchResults?.length > 0 && (
+                <>
+                  <div className="sticky top-0 bg-gray-50 border-b border-gray-100 px-3 py-1.5 flex items-center gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Checkbox checked={allResultsSel} partial={someResultsSel} onChange={toggleAllResults} />
+                      <span className="text-xs text-gray-600 font-medium">
+                        {searchResults.some(pv => selPVs.has(pv))
+                          ? `${searchResults.filter(pv => selPVs.has(pv)).length} of ${searchResults.length} selected`
+                          : `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`}
+                      </span>
+                    </label>
+                  </div>
+                  <div className="px-2 py-1">
+                    {searchResults.map(pv => (
+                      <div key={pv} onClick={() => togglePV(pv)}
+                        className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer hover:bg-blue-50 ${selPVs.has(pv) ? 'bg-blue-50' : ''}`}>
+                        <Checkbox checked={selPVs.has(pv)} partial={false} onChange={() => togglePV(pv)} />
+                        <span className="font-mono text-xs text-gray-600 truncate" title={pv}>{pv}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* Main plot area */}
         <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
           {viewMode === 'plotly' ? (
-            <PlotView
-              pvs={plotPvs}
-              from={tr.from}
-              to={tr.to}
-              plotKey={plotKey}
-              annotations={annotations}
-              onAddAnnotation={addAnnotation}
-              onTimeRangeChange={setTr}
-            />
+            <PlotView pvs={plotPvs} from={tr.from} to={tr.to} plotKey={plotKey}
+              annotations={annotations} onAddAnnotation={addAnnotation} onTimeRangeChange={setTr} />
           ) : (
             viewerUrl
               ? <iframe key={viewerKey} src={viewerUrl} title="AA Viewer"
@@ -327,12 +451,7 @@ export default function App() {
           )}
         </main>
 
-        {/* Annotation panel */}
-        <AnnotationPanel
-          annotations={annotations}
-          onClickAnnotation={clickAnnotation}
-          onDeleteAnnotation={deleteAnnotation}
-        />
+        <AnnotationPanel annotations={annotations} onClickAnnotation={clickAnnotation} onDeleteAnnotation={deleteAnnotation} />
       </div>
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
@@ -340,11 +459,8 @@ export default function App() {
       {csvDialog && (
         <CsvDialog
           defaultFilename={`archiver_${tr.from.toISOString().slice(0,10)}_${tr.to.toISOString().slice(0,10)}.csv`}
-          onDownload={triggerCsvDownload}
-          onClose={() => setCsvDialog(false)}
-        />
+          onDownload={triggerCsvDownload} onClose={() => setCsvDialog(false)} />
       )}
-      {modal === 'search' && <SearchModal pvList={pvList} onAddToSelection={addToSelection} onClose={() => setModal(null)} />}
       {modal === 'groups' && <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />}
       {modal === 'json'   && <JsonModal config={config} onSave={saveConfig} onClose={() => setModal(null)} />}
     </div>
