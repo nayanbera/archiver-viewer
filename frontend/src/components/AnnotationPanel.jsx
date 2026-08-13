@@ -26,10 +26,9 @@ export default function AnnotationPanel({ annotations, onClickAnnotation, onDele
       {sorted.length === 0 ? (
         <div className="flex-1 flex items-center justify-center p-4 text-center">
           <p className="text-xs text-gray-400 leading-relaxed">
-            No annotations yet.<br />
-            Click{' '}
-            <span className="font-medium text-amber-600">+ Annotation</span>
-            {' '}while a plot is shown to add one.
+            No annotations yet.<br /><br />
+            <span className="font-medium text-gray-500">Double-click on the plot</span>
+            {' '}to add an annotation at that timestamp.
           </p>
         </div>
       ) : (

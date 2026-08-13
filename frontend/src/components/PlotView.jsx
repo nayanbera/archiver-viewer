@@ -103,6 +103,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       responsive: true, displayModeBar: true, displaylogo: false,
       modeBarButtonsToRemove: ['sendDataToCloud'],
       scrollZoom: true,
+      doubleClick: false, // we handle double-click ourselves for annotation
     };
 
     if (!readyRef.current) {
@@ -118,16 +119,21 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         }
       });
 
-      // click a point → pre-fill annotation timestamp and open form
+      // single click: store the point timestamp for use on double-click
+      const lastClickTs = { current: null };
       divRef.current.on('plotly_click', ed => {
         if (!ed.points?.length) return;
         const x = ed.points[0].x;
-        // Plotly date axis gives strings like "2024-01-15 14:30:00" (UTC)
         const d = typeof x === 'number'
           ? new Date(x)
           : new Date(String(x).replace(' ', 'T') +
               (String(x).includes('Z') || String(x).includes('+') ? '' : 'Z'));
-        setAnnTs(fmtDTLocal(d));
+        lastClickTs.current = fmtDTLocal(d);
+      });
+
+      // double-click: open annotation form with the stored timestamp
+      divRef.current.on('plotly_doubleclick', () => {
+        setAnnTs(lastClickTs.current || '');
         setShowForm(true);
       });
     } else {
@@ -186,8 +192,8 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
           {loading && <span className="ml-2 text-blue-500 animate-pulse">Fetching…</span>}
           {error   && <span className="ml-2 text-red-500 truncate">{error}</span>}
         </span>
-        <span className="text-[10px] text-gray-300 hidden sm:inline">
-          Click a point to set annotation timestamp · Zoom: scroll or box-select · Pan: drag
+        <span className="text-[10px] text-gray-400 hidden sm:inline">
+          Double-click on the plot to add annotation · Zoom: scroll or box-select · Pan: drag
         </span>
         <button onClick={() => setShowForm(v => !v)}
           title="Add a timestamped note to this plot"
