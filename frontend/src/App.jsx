@@ -140,6 +140,15 @@ export default function App() {
     }
   }, [selPVs, tr, config, viewMode]);
 
+  // auto-plot when a time preset is clicked (only if PVs are available)
+  const handlePresetClick = useCallback(newTr => {
+    if (viewMode !== 'plotly') return;
+    const pvsToPlot = selPVs.size > 0 ? [...selPVs] : plotPvs;
+    if (pvsToPlot.length === 0) return;
+    setPlotPvs(pvsToPlot);
+    setPlotKey(k => k + 1);
+  }, [viewMode, selPVs, plotPvs]);
+
   // ── config persistence ─────────────────────────────────────────────────
   const persistConfig = useCallback(async newCfg => {
     await fetch('/api/config', {
@@ -210,7 +219,7 @@ export default function App() {
           <span className="text-blue-600 font-bold text-base tracking-tight">⚛ Archiver Viewer</span>
           <span className="hidden lg:block text-gray-400 text-xs">Beamline PV Browser</span>
         </div>
-        <div className="flex-1 flex items-center"><TimeBar tr={tr} onChange={setTr} /></div>
+        <div className="flex-1 flex items-center"><TimeBar tr={tr} onChange={setTr} onPresetClick={handlePresetClick} /></div>
         <div className="flex items-center gap-2 shrink-0">
           {/* view mode toggle */}
           <div className="flex rounded border border-gray-200 overflow-hidden">
