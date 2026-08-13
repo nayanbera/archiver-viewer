@@ -231,7 +231,7 @@ export default function App() {
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
 
-      {modal === 'search' && <SearchModal onAddToSelection={addToSelection} onClose={() => setModal(null)} />}
+      {modal === 'search' && <SearchModal pvList={pvList} onAddToSelection={addToSelection} onClose={() => setModal(null)} />}
       {modal === 'groups' && <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />}
       {modal === 'json'   && <JsonModal config={config} onSave={saveConfig} onClose={() => setModal(null)} />}
     </div>

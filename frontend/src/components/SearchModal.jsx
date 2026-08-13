@@ -1,18 +1,34 @@
 import { useState, useMemo } from 'react';
 import Checkbox from './Checkbox';
 
-const EXAMPLES = ['15IDA:*', '*:M1:*', '*BeamPos*', '15ID*:*:RBV'];
+const GLOB_EXAMPLES  = ['15IDA:*', '*:M1:*', '*BeamPos*', '15ID*:*:RBV'];
+const REGEX_EXAMPLES = ['15IDA:.*', '.*:M\\d+:.*', '.*BeamPos.*', '^15ID[A-Z]:.*:RBV$'];
 
-export default function SearchModal({ onAddToSelection, onClose }) {
+export default function SearchModal({ onAddToSelection, onClose, pvList }) {
   const [pattern, setPattern] = useState('');
+  const [mode,    setMode]    = useState('glob');   // 'glob' | 'regex'
   const [results, setResults] = useState(null);
   const [checked, setChecked] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
 
+  const examples = mode === 'regex' ? REGEX_EXAMPLES : GLOB_EXAMPLES;
+
   const runSearch = async () => {
     if (!pattern.trim()) return;
-    setLoading(true); setError(''); setResults(null); setChecked(new Set());
+    setError(''); setResults(null); setChecked(new Set());
+
+    if (mode === 'regex') {
+      try {
+        const re = new RegExp(pattern.trim(), 'i');
+        setResults((pvList || []).filter(pv => re.test(pv)).sort());
+      } catch (e) {
+        setError(`Invalid regex: ${e.message}`);
+      }
+      return;
+    }
+
+    setLoading(true);
     try {
       const r = await fetch(`/api/search?pattern=${encodeURIComponent(pattern.trim())}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -41,10 +57,26 @@ export default function SearchModal({ onAddToSelection, onClose }) {
         </div>
 
         <div className="px-5 py-4 border-b border-gray-100 shrink-0 space-y-2">
+          {/* Mode toggle */}
+          <div className="flex gap-1 mb-1">
+            {['glob', 'regex'].map(m => (
+              <button key={m} onClick={() => { setMode(m); setResults(null); setError(''); }}
+                className={`text-xs px-3 py-1 rounded border font-medium transition-colors ${
+                  mode === m
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}>
+                {m === 'glob' ? 'Glob' : 'Regex'}
+              </button>
+            ))}
+            <span className="text-xs text-gray-400 self-center ml-2">
+              {mode === 'regex' ? 'Case-insensitive · filtered from all archived PVs' : 'Queried live from archiver'}
+            </span>
+          </div>
           <div className="flex gap-2">
             <input value={pattern} onChange={e => setPattern(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && runSearch()}
-              placeholder="Glob pattern, e.g.  15IDA:*  or  *:M1:*  or  *BeamPos*"
+              placeholder={mode === 'regex' ? 'Regex, e.g.  .*:M\\d+:.*  or  ^15IDA:.*:RBV$' : 'Glob pattern, e.g.  15IDA:*  or  *BeamPos*'}
               autoFocus
               className="flex-1 text-sm border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-blue-400 font-mono" />
             <button onClick={runSearch} disabled={loading || !pattern.trim()}
@@ -54,13 +86,12 @@ export default function SearchModal({ onAddToSelection, onClose }) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-400">Examples:</span>
-            {EXAMPLES.map(ex => (
+            {examples.map(ex => (
               <button key={ex} onClick={() => setPattern(ex)}
                 className="text-xs font-mono px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded border border-gray-200 transition-colors">
                 {ex}
               </button>
             ))}
-            <span className="text-xs text-gray-400 ml-1">— <code className="bg-gray-100 px-1 rounded">*</code> is wildcard</span>
           </div>
         </div>
 
