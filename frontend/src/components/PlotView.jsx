@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
+import { fmtDTLocal } from '../utils';
 
 const COLORS = [
   '#2563eb','#dc2626','#16a34a','#9333ea','#ea580c',
@@ -107,7 +108,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     if (!readyRef.current) {
       Plotly.newPlot(divRef.current, traces, layout, cfg);
       readyRef.current = true;
-      // sync Plotly zoom/pan back to TimeBar
+      // sync zoom/pan back to TimeBar
       divRef.current.on('plotly_relayout', ed => {
         if (ed['xaxis.range[0]'] && ed['xaxis.range[1]']) {
           onTimeRangeChange?.({
@@ -115,6 +116,19 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
             to:   new Date(ed['xaxis.range[1]']),
           });
         }
+      });
+
+      // click a point → pre-fill annotation timestamp and open form
+      divRef.current.on('plotly_click', ed => {
+        if (!ed.points?.length) return;
+        const x = ed.points[0].x;
+        // Plotly date axis gives strings like "2024-01-15 14:30:00" (UTC)
+        const d = typeof x === 'number'
+          ? new Date(x)
+          : new Date(String(x).replace(' ', 'T') +
+              (String(x).includes('Z') || String(x).includes('+') ? '' : 'Z'));
+        setAnnTs(fmtDTLocal(d));
+        setShowForm(true);
       });
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
@@ -173,7 +187,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
           {error   && <span className="ml-2 text-red-500 truncate">{error}</span>}
         </span>
         <span className="text-[10px] text-gray-300 hidden sm:inline">
-          Zoom: box-select or scroll · Pan: drag
+          Click a point to set annotation timestamp · Zoom: scroll or box-select · Pan: drag
         </span>
         <button onClick={() => setShowForm(v => !v)}
           title="Add a timestamped note to this plot"
