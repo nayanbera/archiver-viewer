@@ -1,46 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { groupPVs, filterGroups, buildViewerUrl } from './utils';
-import StationNode from './components/StationNode';
-import TimeBar from './components/TimeBar';
-import SelectionTray from './components/SelectionTray';
-import SearchModal from './components/SearchModal';
-import GroupsModal from './components/GroupsModal';
-
-function CsvDialog({ defaultFilename, onDownload, onClose }) {
-  const [filename, setFilename] = useState(defaultFilename);
-  const submit = () => {
-    const name = filename.trim() || defaultFilename;
-    onDownload(name.endsWith('.csv') ? name : name + '.csv');
-    onClose();
-  };
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 p-5 space-y-4">
-        <h2 className="font-bold text-gray-800">Save CSV</h2>
-        <div>
-          <label className="text-xs text-gray-500 block mb-1">Filename</label>
-          <input value={filename} onChange={e => setFilename(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && submit()}
-            autoFocus autoSelect
-            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
-          <p className="text-[11px] text-gray-400 mt-1">
-            Your browser will ask where to save the file.
-          </p>
-        </div>
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose}
-            className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200 transition-colors">
-            Cancel
-          </button>
-          <button onClick={submit}
-            className="text-sm font-semibold px-5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded transition-colors">
-            Download
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import StationNode      from './components/StationNode';
+import TimeBar          from './components/TimeBar';
+import SelectionTray    from './components/SelectionTray';
+import SearchModal      from './components/SearchModal';
+import GroupsModal      from './components/GroupsModal';
+import PlotView         from './components/PlotView';
+import AnnotationPanel  from './components/AnnotationPanel';
 
 function JsonModal({ config, onSave, onClose }) {
   const [text, setText] = useState(JSON.stringify(config, null, 2));
@@ -70,21 +36,30 @@ function JsonModal({ config, onSave, onClose }) {
   );
 }
 
-function EmptyState({ selCount }) {
+function CsvDialog({ defaultFilename, onDownload, onClose }) {
+  const [filename, setFilename] = useState(defaultFilename);
+  const submit = () => {
+    const name = filename.trim() || defaultFilename;
+    onDownload(name.endsWith('.csv') ? name : name + '.csv');
+    onClose();
+  };
   return (
-    <div className="flex flex-col items-center justify-center h-full text-gray-400 select-none bg-gray-50">
-      <div className="text-7xl mb-5 opacity-30">📈</div>
-      {selCount === 0 ? (
-        <>
-          <p className="text-lg font-semibold text-gray-500">Select PVs to plot</p>
-          <p className="text-sm mt-1 text-gray-400">Browse the sidebar, check PVs, then click ▶ Plot</p>
-        </>
-      ) : (
-        <>
-          <p className="text-lg font-semibold text-gray-500">{selCount} PVs ready</p>
-          <p className="text-sm mt-1 text-gray-400">Click ▶ Plot to open the Archiver Viewer</p>
-        </>
-      )}
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 p-5 space-y-4">
+        <h2 className="font-bold text-gray-800">Save CSV</h2>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Filename</label>
+          <input value={filename} onChange={e => setFilename(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            autoFocus
+            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
+          <p className="text-[11px] text-gray-400 mt-1">Your browser will ask where to save the file.</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200 transition-colors">Cancel</button>
+          <button onClick={submit} className="text-sm font-semibold px-5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded transition-colors">Download</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -99,11 +74,23 @@ export default function App() {
   const [tr,        setTr]        = useState(() => ({
     from: new Date(Date.now() - 3_600_000), to: new Date(),
   }));
-  const [viewerUrl, setViewerUrl] = useState(null);
-  const [viewerKey, setViewerKey] = useState(0);
   const [loading,   setLoading]   = useState(true);
   const [fetchErr,  setFetchErr]  = useState(null);
   const [modal,     setModal]     = useState(null);
+
+  // ── view mode ──────────────────────────────────────────────────────────
+  const [viewMode,  setViewMode]  = useState('plotly'); // 'plotly' | 'aa'
+
+  // ── plotly state ───────────────────────────────────────────────────────
+  const [plotPvs,   setPlotPvs]   = useState([]);
+  const [plotKey,   setPlotKey]   = useState(0);
+
+  // ── AA viewer state (preserved) ────────────────────────────────────────
+  const [viewerUrl, setViewerUrl] = useState(null);
+  const [viewerKey, setViewerKey] = useState(0);
+
+  // ── CSV dialog ─────────────────────────────────────────────────────────
+  const [csvDialog, setCsvDialog] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -141,35 +128,63 @@ export default function App() {
   const toggleSt  = useCallback(st => setExpSt(prev => { const n=new Set(prev); n.has(st)?n.delete(st):n.add(st); return n; }), []);
   const toggleDev = useCallback(dk => setExpDev(prev => { const n=new Set(prev); n.has(dk)?n.delete(dk):n.add(dk); return n; }), []);
 
+  // ── plot ───────────────────────────────────────────────────────────────
   const handlePlot = useCallback(() => {
     if (selPVs.size === 0) return;
-    setViewerUrl(buildViewerUrl([...selPVs], tr.from, tr.to, config));
-    setViewerKey(k => k + 1);
-  }, [selPVs, tr, config]);
+    if (viewMode === 'plotly') {
+      setPlotPvs([...selPVs]);
+      setPlotKey(k => k + 1);
+    } else {
+      setViewerUrl(buildViewerUrl([...selPVs], tr.from, tr.to, config));
+      setViewerKey(k => k + 1);
+    }
+  }, [selPVs, tr, config, viewMode]);
+
+  // ── config persistence ─────────────────────────────────────────────────
+  const persistConfig = useCallback(async newCfg => {
+    await fetch('/api/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCfg),
+    });
+    setConfig(newCfg);
+  }, []);
 
   const saveConfig = useCallback(async newCfg => {
+    try { await persistConfig(newCfg); setModal(null); }
+    catch (e) { alert(`Failed to save: ${e.message}`); }
+  }, [persistConfig]);
+
+  // ── annotations ────────────────────────────────────────────────────────
+  const annotations = config.annotations || [];
+
+  const addAnnotation = useCallback(async ann => {
     try {
-      await fetch('/api/config', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCfg),
-      });
-      setConfig(newCfg);
-      setModal(null);
-    } catch (e) { alert(`Failed to save: ${e.message}`); }
-  }, []);
+      await persistConfig({ ...config, annotations: [...annotations, ann] });
+    } catch (e) { alert(`Failed to save annotation: ${e.message}`); }
+  }, [config, annotations, persistConfig]);
 
-  const addToSelection = useCallback(pvs => {
-    setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; });
-  }, []);
+  const deleteAnnotation = useCallback(async id => {
+    try {
+      await persistConfig({ ...config, annotations: annotations.filter(a => a.id !== id) });
+    } catch (e) { alert(`Failed to delete annotation: ${e.message}`); }
+  }, [config, annotations, persistConfig]);
 
-  const [csvDialog, setCsvDialog] = useState(false);
+  const clickAnnotation = useCallback(ann => {
+    if (!ann.timeRange) return;
+    const newTr = { from: new Date(ann.timeRange.from), to: new Date(ann.timeRange.to) };
+    setTr(newTr);
+    setPlotPvs(ann.pvs || []);
+    setPlotKey(k => k + 1);
+    if (viewMode !== 'plotly') setViewMode('plotly');
+  }, [viewMode]);
 
+  // ── CSV download ───────────────────────────────────────────────────────
   const handleDownloadCsv = useCallback(() => {
     if (selPVs.size === 0) return;
     setCsvDialog(true);
   }, [selPVs]);
 
-  const triggerCsvDownload = useCallback((filename) => {
+  const triggerCsvDownload = useCallback(filename => {
     const params = new URLSearchParams();
     [...selPVs].forEach(pv => params.append('pv', pv));
     params.set('from', tr.from.toISOString());
@@ -182,10 +197,14 @@ export default function App() {
     document.body.removeChild(a);
   }, [selPVs, tr]);
 
+  const addToSelection = useCallback(pvs => {
+    setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; });
+  }, []);
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
 
-      {/* Header */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0 shadow-sm">
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-blue-600 font-bold text-base tracking-tight">⚛ Archiver Viewer</span>
@@ -193,7 +212,20 @@ export default function App() {
         </div>
         <div className="flex-1 flex items-center"><TimeBar tr={tr} onChange={setTr} /></div>
         <div className="flex items-center gap-2 shrink-0">
-          {viewerUrl && (
+          {/* view mode toggle */}
+          <div className="flex rounded border border-gray-200 overflow-hidden">
+            {[['plotly','📊 Plotly'],['aa','🔗 AA Viewer']].map(([m, label]) => (
+              <button key={m} onClick={() => setViewMode(m)}
+                className={`text-xs px-2.5 py-1 transition-colors ${
+                  viewMode === m
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50 border-l border-gray-200 first:border-l-0'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {viewMode === 'aa' && viewerUrl && (
             <a href={viewerUrl} target="_blank" rel="noopener noreferrer"
               className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 border border-gray-200 transition-colors">
               ↗ New Tab
@@ -218,7 +250,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Body */}
+      {/* ── Body ────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
 
         {/* Sidebar */}
@@ -238,7 +270,6 @@ export default function App() {
               )}
             </div>
           </div>
-
           <div className="flex-1 overflow-y-auto p-2">
             {loading && <div className="flex items-center justify-center h-32"><span className="text-gray-400 text-sm animate-pulse">Loading PVs…</span></div>}
             {fetchErr && (
@@ -260,15 +291,39 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Viewer */}
+        {/* Main plot area */}
         <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
-          {viewerUrl
-            ? <iframe key={viewerKey} src={viewerUrl} title="Archiver Viewer"
-                className="flex-1 w-full border-none bg-white"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" />
-            : <EmptyState selCount={selPVs.size} />
-          }
+          {viewMode === 'plotly' ? (
+            <PlotView
+              pvs={plotPvs}
+              from={tr.from}
+              to={tr.to}
+              plotKey={plotKey}
+              annotations={annotations}
+              onAddAnnotation={addAnnotation}
+              onTimeRangeChange={setTr}
+            />
+          ) : (
+            viewerUrl
+              ? <iframe key={viewerKey} src={viewerUrl} title="AA Viewer"
+                  className="flex-1 w-full border-none bg-white"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" />
+              : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 select-none bg-gray-50">
+                  <div className="text-7xl mb-5 opacity-30">📈</div>
+                  <p className="text-lg font-semibold text-gray-500">Select PVs to plot</p>
+                  <p className="text-sm mt-1 text-gray-400">Browse the sidebar, check PVs, then click ▶ Plot</p>
+                </div>
+              )
+          )}
         </main>
+
+        {/* Annotation panel */}
+        <AnnotationPanel
+          annotations={annotations}
+          onClickAnnotation={clickAnnotation}
+          onDeleteAnnotation={deleteAnnotation}
+        />
       </div>
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />

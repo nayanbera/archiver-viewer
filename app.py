@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     "stationLabels": {},
     "deviceTypes":   {},
     "hiddenPVs":     [],
+    "annotations":   [],
     "viewerBaseUrl":    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/ui/viewer/archViewer.html",
     "viewerUrlFormat":  "query",
 }
@@ -57,6 +58,42 @@ async def get_all_pvs():
         raise HTTPException(status_code=503, detail=f"Cannot reach archiver: {exc}")
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+
+
+@app.get("/api/data")
+async def get_pv_data(request: Request):
+    """Fetch PV samples as JSON for Plotly rendering."""
+    from datetime import datetime, timezone
+    pvs   = request.query_params.getlist("pv")
+    from_ = request.query_params.get("from")
+    to    = request.query_params.get("to")
+    if not pvs or not from_ or not to:
+        raise HTTPException(status_code=400, detail="Provide pv=, from=, and to= params")
+    result = []
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for pv in pvs:
+            try:
+                r = await client.get(
+                    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
+                    params={"pv": pv, "from": from_, "to": to},
+                )
+                r.raise_for_status()
+                payload = r.json()
+                timestamps, values = [], []
+                if payload and isinstance(payload, list) and payload[0].get("data"):
+                    for d in payload[0]["data"]:
+                        ts = datetime.fromtimestamp(
+                            d["secs"] + d.get("nanos", 0) / 1e9,
+                            tz=timezone.utc,
+                        ).isoformat()
+                        timestamps.append(ts)
+                        values.append(d["val"])
+                result.append({"pv": pv, "timestamps": timestamps, "values": values})
+                log.info("api/data: %s → %d samples", pv, len(timestamps))
+            except Exception as exc:
+                log.warning("api/data failed for %s: %s", pv, exc)
+                result.append({"pv": pv, "timestamps": [], "values": [], "error": str(exc)})
+    return result
 
 
 @app.get("/api/csv")
