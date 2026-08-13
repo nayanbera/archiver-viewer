@@ -1,4 +1,4 @@
-export default function SelectionTray({ selPVs, onClear, onPlot }) {
+export default function SelectionTray({ selPVs, onClear, onPlot, onDownloadCsv }) {
   const arr = [...selPVs];
   if (arr.length === 0) return null;
   return (
@@ -17,6 +17,10 @@ export default function SelectionTray({ selPVs, onClear, onPlot }) {
       <button onClick={onClear}
         className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 border border-gray-200 transition-colors shrink-0">
         Clear
+      </button>
+      <button onClick={onDownloadCsv}
+        className="text-sm font-semibold px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center gap-1.5 shrink-0">
+        💾 CSV
       </button>
       <button onClick={onPlot}
         className="text-sm font-semibold px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1.5 shrink-0">

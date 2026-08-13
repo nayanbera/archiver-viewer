@@ -59,6 +59,28 @@ async def get_all_pvs():
         raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
 
 
+@app.get("/api/csv")
+async def download_csv(request: Request):
+    """Proxy AA getData.csv for the requested PVs and time range, returning a downloadable file."""
+    pvs  = request.query_params.getlist("pv")
+    from_ = request.query_params.get("from")
+    to    = request.query_params.get("to")
+    if not pvs or not from_ or not to:
+        raise HTTPException(status_code=400, detail="Provide at least one pv=, from=, and to= param")
+    params = [("pv", p) for p in pvs] + [("from", from_), ("to", to)]
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.get(f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.csv", params=params)
+            r.raise_for_status()
+            fname = "archiver_data.csv"
+            return Response(content=r.content, media_type="text/csv",
+                            headers={"Content-Disposition": f"attachment; filename={fname}"})
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Cannot reach archiver: {exc}")
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+
+
 @app.get("/api/search")
 async def search_pvs(pattern: str, limit: int = 5000):
     """Search archived PVs by glob pattern, e.g. 15IDA:* or *:M1:*"""

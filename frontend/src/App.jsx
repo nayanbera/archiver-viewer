@@ -126,6 +126,20 @@ export default function App() {
     setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; });
   }, []);
 
+  const handleDownloadCsv = useCallback(() => {
+    if (selPVs.size === 0) return;
+    const params = new URLSearchParams();
+    [...selPVs].forEach(pv => params.append('pv', pv));
+    params.set('from', tr.from.toISOString());
+    params.set('to',   tr.to.toISOString());
+    const a = document.createElement('a');
+    a.href = `/api/csv?${params}`;
+    a.download = 'archiver_data.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [selPVs, tr]);
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
 
@@ -215,7 +229,7 @@ export default function App() {
         </main>
       </div>
 
-      <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} />
+      <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
 
       {modal === 'search' && <SearchModal onAddToSelection={addToSelection} onClose={() => setModal(null)} />}
       {modal === 'groups' && <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />}
