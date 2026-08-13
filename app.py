@@ -62,44 +62,62 @@ async def get_all_pvs():
 
 @app.get("/api/data")
 async def get_pv_data(request: Request):
-    """Fetch PV samples as JSON for Plotly rendering."""
+    """Fetch PV samples as JSON for Plotly rendering.
+
+    By default uses AA's optimized_N operator (server-side decimation) to
+    return ~N representative points regardless of raw sample count — the same
+    strategy the native AA viewer uses for fast display of long time ranges.
+    Pass raw=true to fetch every sample (slower but exact).
+    """
+    import asyncio
     from datetime import datetime, timezone
-    pvs   = request.query_params.getlist("pv")
-    from_ = request.query_params.get("from")
-    to    = request.query_params.get("to")
+
+    pvs    = request.query_params.getlist("pv")
+    from_  = request.query_params.get("from")
+    to     = request.query_params.get("to")
+    points = int(request.query_params.get("points", "1000"))
+    raw    = request.query_params.get("raw", "false").lower() == "true"
+
     if not pvs or not from_ or not to:
         raise HTTPException(status_code=400, detail="Provide pv=, from=, and to= params")
-    result = []
+
+    async def fetch_one(client: httpx.AsyncClient, pv: str):
+        try:
+            # optimized_N tells the archiver to bin the data into at most N
+            # representative samples — identical to what the native AA plot does.
+            pv_query = pv if raw else f"optimized_{points}({pv})"
+            r = await client.get(
+                f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
+                params={"pv": pv_query, "from": from_, "to": to},
+            )
+            r.raise_for_status()
+            payload = r.json()
+            timestamps, values = [], []
+            if payload and isinstance(payload, list) and payload[0].get("data"):
+                for d in payload[0]["data"]:
+                    ts = datetime.fromtimestamp(
+                        d["secs"] + d.get("nanos", 0) / 1e9,
+                        tz=timezone.utc,
+                    ).isoformat()
+                    timestamps.append(ts)
+                    values.append(d["val"])
+            mode = "raw" if raw else f"optimized_{points}"
+            log.info("api/data: %s → %d samples (%s)", pv, len(timestamps), mode)
+            return {"pv": pv, "timestamps": timestamps, "values": values}
+        except Exception as exc:
+            log.warning("api/data failed for %s: %s", pv, exc)
+            return {"pv": pv, "timestamps": [], "values": [], "error": str(exc)}
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        for pv in pvs:
-            try:
-                r = await client.get(
-                    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
-                    params={"pv": pv, "from": from_, "to": to},
-                )
-                r.raise_for_status()
-                payload = r.json()
-                timestamps, values = [], []
-                if payload and isinstance(payload, list) and payload[0].get("data"):
-                    for d in payload[0]["data"]:
-                        ts = datetime.fromtimestamp(
-                            d["secs"] + d.get("nanos", 0) / 1e9,
-                            tz=timezone.utc,
-                        ).isoformat()
-                        timestamps.append(ts)
-                        values.append(d["val"])
-                result.append({"pv": pv, "timestamps": timestamps, "values": values})
-                log.info("api/data: %s → %d samples", pv, len(timestamps))
-            except Exception as exc:
-                log.warning("api/data failed for %s: %s", pv, exc)
-                result.append({"pv": pv, "timestamps": [], "values": [], "error": str(exc)})
-    return result
+        results = await asyncio.gather(*[fetch_one(client, pv) for pv in pvs])
+
+    return list(results)
 
 
 @app.get("/api/csv")
 async def download_csv(request: Request):
-    """Fetch PV data via getData.json for each PV, merge by timestamp, return as CSV."""
-    import csv, io
+    """Fetch raw PV data in parallel via getData.json, merge into wide-format CSV."""
+    import asyncio, csv, io
     from collections import defaultdict
     from datetime import datetime, timezone
 
@@ -109,29 +127,32 @@ async def download_csv(request: Request):
     if not pvs or not from_ or not to:
         raise HTTPException(status_code=400, detail="Provide at least one pv=, from=, and to= param")
 
-    pv_data: dict[str, list[tuple[str, object]]] = {}
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for pv in pvs:
-            try:
-                r = await client.get(
-                    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
-                    params={"pv": pv, "from": from_, "to": to},
-                )
-                r.raise_for_status()
-                payload = r.json()
-                rows: list[tuple[str, object]] = []
-                if payload and isinstance(payload, list) and payload[0].get("data"):
-                    for d in payload[0]["data"]:
-                        ts = datetime.fromtimestamp(
-                            d["secs"] + d.get("nanos", 0) / 1e9,
-                            tz=timezone.utc,
-                        ).isoformat()
-                        rows.append((ts, d["val"]))
-                pv_data[pv] = rows
-                log.info("CSV fetch: %s → %d samples", pv, len(rows))
-            except Exception as exc:
-                log.warning("CSV fetch failed for %s: %s", pv, exc)
-                pv_data[pv] = []
+    async def fetch_one_csv(client: httpx.AsyncClient, pv: str):
+        try:
+            r = await client.get(
+                f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
+                params={"pv": pv, "from": from_, "to": to},
+            )
+            r.raise_for_status()
+            payload = r.json()
+            rows: list[tuple[str, object]] = []
+            if payload and isinstance(payload, list) and payload[0].get("data"):
+                for d in payload[0]["data"]:
+                    ts = datetime.fromtimestamp(
+                        d["secs"] + d.get("nanos", 0) / 1e9,
+                        tz=timezone.utc,
+                    ).isoformat()
+                    rows.append((ts, d["val"]))
+            log.info("CSV fetch: %s → %d samples", pv, len(rows))
+            return pv, rows
+        except Exception as exc:
+            log.warning("CSV fetch failed for %s: %s", pv, exc)
+            return pv, []
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        fetched = await asyncio.gather(*[fetch_one_csv(client, pv) for pv in pvs])
+
+    pv_data = dict(fetched)
 
     # Wide-format merge: one row per timestamp, one column per PV
     merged: dict[str, dict[str, object]] = defaultdict(dict)

@@ -37,6 +37,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [showForm,  setShowForm]  = useState(false);
   const [annNote,   setAnnNote]   = useState('');
   const [annTs,     setAnnTs]     = useState('');
+  const [rawMode,   setRawMode]   = useState(false);  // false = optimized (fast), true = all raw samples
 
   // ── ResizeObserver so Plotly always fills its container ────────────────
   useLayoutEffect(() => {
@@ -60,6 +61,12 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         pvs.forEach(pv => params.append('pv', pv));
         params.set('from', from.toISOString());
         params.set('to',   to.toISOString());
+        if (rawMode) {
+          params.set('raw', 'true');
+        } else {
+          // request ~1200 points — matches typical chart pixel width
+          params.set('points', '1200');
+        }
         const r = await fetch(`/api/data?${params}`, { signal: ctrl.signal });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         setPlotData(await r.json());
@@ -70,7 +77,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       }
     })();
     return () => ctrl.abort();
-  }, [plotKey]); // only refetch on plotKey change
+  }, [plotKey, rawMode]); // refetch on plotKey bump or Raw/Fast toggle
 
   // ── full re-render when data arrives (resets zoom to fetched range) ────
   useEffect(() => {
@@ -80,7 +87,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const traces = plotData.map((d, i) => ({
       x: d.timestamps, y: d.values,
       name: d.pv, type: 'scatter', mode: 'lines',
-      line: { color: COLORS[i % COLORS.length], width: 1.5 },
+      line: { color: COLORS[i % COLORS.length], width: 1.5, shape: 'hv' },
     }));
 
     const layout = {
@@ -195,6 +202,18 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         <span className="text-[10px] text-gray-400 hidden sm:inline">
           Double-click on the plot to add annotation · Zoom: scroll or box-select · Pan: drag
         </span>
+        <button
+          onClick={() => setRawMode(v => !v)}
+          title={rawMode
+            ? 'Showing all raw samples — click to switch to fast optimized mode'
+            : 'Showing optimized ~1200 pts (fast) — click for all raw samples'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
+            rawMode
+              ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          {rawMode ? 'Raw' : 'Fast'}
+        </button>
         <button onClick={() => setShowForm(v => !v)}
           title="Add a timestamped note to this plot"
           className="text-xs px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded border border-amber-200 transition-colors font-medium">
