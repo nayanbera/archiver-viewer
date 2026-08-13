@@ -61,24 +61,59 @@ async def get_all_pvs():
 
 @app.get("/api/csv")
 async def download_csv(request: Request):
-    """Proxy AA getData.csv for the requested PVs and time range, returning a downloadable file."""
-    pvs  = request.query_params.getlist("pv")
+    """Fetch PV data via getData.json for each PV, merge by timestamp, return as CSV."""
+    import csv, io
+    from collections import defaultdict
+    from datetime import datetime, timezone
+
+    pvs   = request.query_params.getlist("pv")
     from_ = request.query_params.get("from")
     to    = request.query_params.get("to")
     if not pvs or not from_ or not to:
         raise HTTPException(status_code=400, detail="Provide at least one pv=, from=, and to= param")
-    params = [("pv", p) for p in pvs] + [("from", from_), ("to", to)]
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.get(f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.csv", params=params)
-            r.raise_for_status()
-            fname = "archiver_data.csv"
-            return Response(content=r.content, media_type="text/csv",
-                            headers={"Content-Disposition": f"attachment; filename={fname}"})
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=503, detail=f"Cannot reach archiver: {exc}")
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+
+    pv_data: dict[str, list[tuple[str, object]]] = {}
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for pv in pvs:
+            try:
+                r = await client.get(
+                    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
+                    params={"pv": pv, "from": from_, "to": to},
+                )
+                r.raise_for_status()
+                payload = r.json()
+                rows: list[tuple[str, object]] = []
+                if payload and isinstance(payload, list) and payload[0].get("data"):
+                    for d in payload[0]["data"]:
+                        ts = datetime.fromtimestamp(
+                            d["secs"] + d.get("nanos", 0) / 1e9,
+                            tz=timezone.utc,
+                        ).isoformat()
+                        rows.append((ts, d["val"]))
+                pv_data[pv] = rows
+                log.info("CSV fetch: %s → %d samples", pv, len(rows))
+            except Exception as exc:
+                log.warning("CSV fetch failed for %s: %s", pv, exc)
+                pv_data[pv] = []
+
+    # Wide-format merge: one row per timestamp, one column per PV
+    merged: dict[str, dict[str, object]] = defaultdict(dict)
+    for pv, rows in pv_data.items():
+        for ts, val in rows:
+            merged[ts][pv] = val
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Timestamp (UTC)"] + pvs)
+    for ts in sorted(merged):
+        writer.writerow([ts] + [merged[ts].get(pv, "") for pv in pvs])
+
+    log.info("CSV download: %d PVs, %d rows", len(pvs), len(merged))
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=archiver_data.csv"},
+    )
 
 
 @app.get("/api/search")

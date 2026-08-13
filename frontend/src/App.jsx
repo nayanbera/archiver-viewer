@@ -24,7 +24,7 @@ function CsvDialog({ defaultFilename, onDownload, onClose }) {
             autoFocus autoSelect
             className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
           <p className="text-[11px] text-gray-400 mt-1">
-            File saves to your browser's configured download folder. The path cannot be set from the browser.
+            Your browser will ask where to save the file.
           </p>
         </div>
         <div className="flex justify-end gap-2">
