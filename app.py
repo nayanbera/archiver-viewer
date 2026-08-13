@@ -64,9 +64,9 @@ async def get_all_pvs():
 async def get_pv_data(request: Request):
     """Fetch PV samples as JSON for Plotly rendering.
 
-    By default uses AA's optimized_N operator (server-side decimation) to
-    return ~N representative points regardless of raw sample count — the same
-    strategy the native AA viewer uses for fast display of long time ranges.
+    Uses AA's mean_N operator (N seconds per bin) for server-side decimation so
+    the archiver returns ~points samples regardless of raw sample count.  N is
+    computed from the requested time range so the output resolution matches.
     Pass raw=true to fetch every sample (slower but exact).
     """
     import asyncio
@@ -81,11 +81,21 @@ async def get_pv_data(request: Request):
     if not pvs or not from_ or not to:
         raise HTTPException(status_code=400, detail="Provide pv=, from=, and to= params")
 
+    # Compute bin size from the requested time range.  mean_N(PV) asks the
+    # archiver to return one mean value per N-second interval, giving ~points
+    # samples over the range.  We only apply it when N >= 2 (i.e. the range is
+    # long enough that decimation is worth it); shorter ranges get raw data.
+    try:
+        from_dt = datetime.fromisoformat(from_.replace("Z", "+00:00"))
+        to_dt   = datetime.fromisoformat(to.replace("Z", "+00:00"))
+        bin_s   = int((to_dt - from_dt).total_seconds() / points)
+    except Exception:
+        bin_s = 0
+    use_mean = not raw and bin_s >= 2
+
     async def fetch_one(client: httpx.AsyncClient, pv: str):
         try:
-            # optimized_N tells the archiver to bin the data into at most N
-            # representative samples — identical to what the native AA plot does.
-            pv_query = pv if raw else f"optimized_{points}({pv})"
+            pv_query = f"mean_{bin_s}({pv})" if use_mean else pv
             r = await client.get(
                 f"{ARCHIVER_RETRIEVAL_URL}/retrieval/data/getData.json",
                 params={"pv": pv_query, "from": from_, "to": to},
@@ -99,9 +109,12 @@ async def get_pv_data(request: Request):
                         d["secs"] + d.get("nanos", 0) / 1e9,
                         tz=timezone.utc,
                     ).isoformat()
+                    val = d.get("val")
+                    if val is None:
+                        continue
                     timestamps.append(ts)
-                    values.append(d["val"])
-            mode = "raw" if raw else f"optimized_{points}"
+                    values.append(val[0] if isinstance(val, list) else val)
+            mode = "raw" if not use_mean else f"mean_{bin_s}"
             log.info("api/data: %s → %d samples (%s)", pv, len(timestamps), mode)
             return {"pv": pv, "timestamps": timestamps, "values": values}
         except Exception as exc:
