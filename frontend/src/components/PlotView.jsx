@@ -37,8 +37,9 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [showForm,  setShowForm]  = useState(false);
   const [annNote,   setAnnNote]   = useState('');
   const [annTs,     setAnnTs]     = useState('');
-  const [rawMode,   setRawMode]   = useState(false);  // false = optimized (fast), true = all raw samples
+  const [rawMode,   setRawMode]   = useState(false);
   const [logY,      setLogY]      = useState(false);
+  const [ptCount,   setPtCount]   = useState(null);  // total points across all PVs after last fetch
 
   // ── ResizeObserver so Plotly always fills its container ────────────────
   useLayoutEffect(() => {
@@ -56,7 +57,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     capturedRef.current = { pvs, from, to };
     const ctrl = new AbortController();
     (async () => {
-      setLoading(true); setError('');
+      setLoading(true); setError(''); setPtCount(null);
       try {
         const params = new URLSearchParams();
         pvs.forEach(pv => params.append('pv', pv));
@@ -70,7 +71,9 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         }
         const r = await fetch(`/api/data?${params}`, { signal: ctrl.signal });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setPlotData(await r.json());
+        const data = await r.json();
+        setPlotData(data);
+        setPtCount(data.reduce((s, d) => s + (d.timestamps?.length ?? 0), 0));
       } catch (e) {
         if (e.name !== 'AbortError') setError(e.message);
       } finally {
@@ -195,10 +198,15 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
 
       {/* toolbar */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0">
-        <span className="text-xs text-gray-400 flex-1">
-          {pvs?.length} PV{pvs?.length !== 1 ? 's' : ''}
-          {loading && <span className="ml-2 text-blue-500 animate-pulse">Fetching…</span>}
-          {error   && <span className="ml-2 text-red-500 truncate">{error}</span>}
+        <span className="text-xs text-gray-400 flex-1 flex items-center gap-2">
+          <span>{pvs?.length} PV{pvs?.length !== 1 ? 's' : ''}</span>
+          {ptCount !== null && !loading && (
+            <span className={`font-mono ${rawMode ? 'text-orange-500' : 'text-gray-400'}`}>
+              {ptCount.toLocaleString()} pts
+            </span>
+          )}
+          {loading && <span className="text-blue-500 animate-pulse">Fetching…</span>}
+          {error   && <span className="text-red-500 truncate">{error}</span>}
         </span>
         <span className="text-[10px] text-gray-400 hidden sm:inline">
           Double-click on the plot to add annotation · Zoom: scroll or box-select · Pan: drag
