@@ -6,6 +6,42 @@ import SelectionTray from './components/SelectionTray';
 import SearchModal from './components/SearchModal';
 import GroupsModal from './components/GroupsModal';
 
+function CsvDialog({ defaultFilename, onDownload, onClose }) {
+  const [filename, setFilename] = useState(defaultFilename);
+  const submit = () => {
+    const name = filename.trim() || defaultFilename;
+    onDownload(name.endsWith('.csv') ? name : name + '.csv');
+    onClose();
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 p-5 space-y-4">
+        <h2 className="font-bold text-gray-800">Save CSV</h2>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Filename</label>
+          <input value={filename} onChange={e => setFilename(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            autoFocus autoSelect
+            className="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-400 font-mono" />
+          <p className="text-[11px] text-gray-400 mt-1">
+            File saves to your browser's configured download folder. The path cannot be set from the browser.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose}
+            className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200 transition-colors">
+            Cancel
+          </button>
+          <button onClick={submit}
+            className="text-sm font-semibold px-5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded transition-colors">
+            Download
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function JsonModal({ config, onSave, onClose }) {
   const [text, setText] = useState(JSON.stringify(config, null, 2));
   const [err,  setErr]  = useState('');
@@ -126,15 +162,21 @@ export default function App() {
     setSelPVs(prev => { const n = new Set(prev); pvs.forEach(p => n.add(p)); return n; });
   }, []);
 
+  const [csvDialog, setCsvDialog] = useState(false);
+
   const handleDownloadCsv = useCallback(() => {
     if (selPVs.size === 0) return;
+    setCsvDialog(true);
+  }, [selPVs]);
+
+  const triggerCsvDownload = useCallback((filename) => {
     const params = new URLSearchParams();
     [...selPVs].forEach(pv => params.append('pv', pv));
     params.set('from', tr.from.toISOString());
     params.set('to',   tr.to.toISOString());
     const a = document.createElement('a');
     a.href = `/api/csv?${params}`;
-    a.download = 'archiver_data.csv';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -231,6 +273,13 @@ export default function App() {
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
 
+      {csvDialog && (
+        <CsvDialog
+          defaultFilename={`archiver_${tr.from.toISOString().slice(0,10)}_${tr.to.toISOString().slice(0,10)}.csv`}
+          onDownload={triggerCsvDownload}
+          onClose={() => setCsvDialog(false)}
+        />
+      )}
       {modal === 'search' && <SearchModal pvList={pvList} onAddToSelection={addToSelection} onClose={() => setModal(null)} />}
       {modal === 'groups' && <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />}
       {modal === 'json'   && <JsonModal config={config} onSave={saveConfig} onClose={() => setModal(null)} />}
