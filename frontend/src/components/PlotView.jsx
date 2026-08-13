@@ -38,6 +38,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [annNote,   setAnnNote]   = useState('');
   const [annTs,     setAnnTs]     = useState('');
   const [rawMode,   setRawMode]   = useState(false);  // false = optimized (fast), true = all raw samples
+  const [logY,      setLogY]      = useState(false);
 
   // ── ResizeObserver so Plotly always fills its container ────────────────
   useLayoutEffect(() => {
@@ -97,7 +98,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         range: cap ? [cap.from.toISOString(), cap.to.toISOString()] : undefined,
         title: { text: 'Time (UTC)', font: { size: 11 } },
       },
-      yaxis: { title: { text: 'Value', font: { size: 11 } }, automargin: true },
+      yaxis: { title: { text: 'Value', font: { size: 11 } }, automargin: true, type: logY ? 'log' : 'linear' },
       legend: { orientation: 'h', y: -0.18, font: { size: 10 } },
       hovermode: 'x unified',
       plot_bgcolor: '#f9fafb',
@@ -146,7 +147,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
     }
-  }, [plotData]); // only runs when data changes; does NOT include annotations
+  }, [plotData, logY]); // reruns when data changes or log/linear is toggled
 
   // ── annotation-only update — preserves zoom ────────────────────────────
   useEffect(() => {
@@ -202,6 +203,16 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         <span className="text-[10px] text-gray-400 hidden sm:inline">
           Double-click on the plot to add annotation · Zoom: scroll or box-select · Pan: drag
         </span>
+        <button
+          onClick={() => setLogY(v => !v)}
+          title={logY ? 'Y-axis: log scale — click for linear' : 'Y-axis: linear — click for log scale'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
+            logY
+              ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          {logY ? 'Log Y' : 'Lin Y'}
+        </button>
         <button
           onClick={() => setRawMode(v => !v)}
           title={rawMode
