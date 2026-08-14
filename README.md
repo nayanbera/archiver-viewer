@@ -1,7 +1,7 @@
 # Archiver Viewer
 
-A web-based browser for EPICS Archiver Appliance data, designed for beamline PV monitoring.  
-Browse PVs grouped by experimental station and device, select multiple PVs, and plot them in the Archiver Appliance viewer.
+A web-based browser and plotter for EPICS Archiver Appliance (AA) data, designed for beamline PV monitoring.
+Browse PVs grouped by experimental station and device, select multiple PVs, and plot them interactively with Plotly.
 
 **GitHub:** https://github.com/nayanbera/archiver-viewer
 
@@ -9,13 +9,37 @@ Browse PVs grouped by experimental station and device, select multiple PVs, and 
 
 ## Features
 
+### PV Browser (sidebar)
 - Collapsible tree: Station → Device → PV
-- Multi-select with cascading checkboxes (select a whole device or station at once)
-- Live filter / search across all PV names
-- Pattern search against the archiver (`15IDA:*`, `*:M1:*`, `*BeamPos*`)
-- Embedded Archiver Viewer iframe with time range controls
-- Manual group overrides — rename stations, reassign non-standard PVs, tag device types
-- One-click link to the AA management page to add new PVs to the archiver
+- Multi-select with cascading checkboxes (select an entire device or station at once)
+- Three search modes accessible from the sidebar:
+  - **Filter** — live tree filter as you type
+  - **Glob** — pattern search against the archiver (`15IDA:*`, `*:M1:*`, `*BeamPos*`)
+  - **Regex** — case-insensitive local regex filter (`.*:M\d+:.*`)
+
+### Interactive Plotly Chart
+- Step-style line plot (hold-until-change), one trace per PV, colour-coded
+- **Time presets** — 5 m, 15 m, 1 h, 8 h, 24 h, 7 d, 30 d, 3 mo, 6 mo, 1 y; clicking a preset auto-plots immediately
+- Custom date/time range pickers
+- Zoom (scroll wheel or box-select), pan (drag), and X-axis sync back to the time bar
+- **Fast / Raw toggle** — Fast mode uses AA's `mean_N` operator to return ~1 200 representative points (same speed as the native AA viewer); Raw mode fetches every archived sample. Point count shown live in the toolbar.
+- **Lin Y / Log Y toggle** — switch Y-axis between linear and logarithmic scale
+- Export plotted data as **CSV** (matches plot decimation by default; tick *Export all raw samples* for full resolution)
+
+### Annotations
+- **Double-click** anywhere on the plot to open the annotation form at that timestamp
+- Annotations are stored in `config/overrides.json` and persist across sessions
+- Each annotation records: note text, timestamp, plotted PVs, and time range
+- Clicking an annotation in the sidebar restores the exact plot view and marks the timestamp with a vertical dashed line
+- **Search** annotations by note text or timestamp (live, case-insensitive)
+- **Edit** (✏) and **Delete** (✕) buttons appear on hover; both require the annotation password if one is set
+- Password management via the 🔓/🔒 icon in the panel header (set, change, or remove the password without editing JSON)
+
+### Other
+- **AA Viewer tab** — original Archiver Appliance iframe is preserved and accessible via the Plotly / AA Viewer toggle
+- **⊞ Groups** — rename stations, reassign non-standard PVs, tag device types
+- **⚙ JSON** — raw config editor for power users
+- One-click link to the AA management page
 
 ---
 
@@ -23,7 +47,7 @@ Browse PVs grouped by experimental station and device, select multiple PVs, and 
 
 ### Prerequisites
 
-- Python 3.9 or later (Anaconda is fine)
+- Python 3.9 or later (Anaconda recommended)
 - Git
 - Network access to the Archiver Appliance
 
@@ -46,7 +70,7 @@ cd archiver-viewer
 conda env create -f environment.yml
 ```
 
-This creates an environment named **`archiver-viewer`** with Python 3.11 and all dependencies.  
+This creates an environment named **`archiver-viewer`** with Python 3.11 and all dependencies.
 Only needs to be done once. To update dependencies later:
 
 ```bash
@@ -62,20 +86,21 @@ conda activate archiver-viewer
 python app.py
 ```
 
-Open a browser and go to `http://localhost:8080`.  
-You should see the PV browser with all archived PVs loaded.  
+Open a browser and go to `http://localhost:8080`.
+You should see the PV browser with all archived PVs loaded.
 Press **Ctrl+C** to stop.
 
 ---
 
 ### Step 4 — Install as a systemd service (auto-start on boot)
 
-**4a. Edit `archiver-viewer.service`** — update these three lines to match your system:
+**4a. Edit `archiver-viewer.service`** — update these lines to match your system:
 
 ```ini
-User=beamline                                                        # Linux user that runs the app
-WorkingDirectory=/opt/archiver-viewer                                # full path to the cloned repo
-ExecStart=/opt/anaconda3/envs/archiver-viewer/bin/python app.py     # Python inside the conda env
+User=chem_epics                                                                    # Linux user that runs the app
+WorkingDirectory=/usr/local/epics/archiver-viewer                                  # full path to the cloned repo
+ExecStart=/home/chem_epics/anaconda3/envs/archiver-viewer/bin/python app.py       # Python inside the conda env
+Environment="CONFIG_PATH=/usr/local/epics/archiver-viewer/config/overrides.json"  # config file location
 ```
 
 Find the exact path to the conda env's Python with:
@@ -89,11 +114,11 @@ which python
 
 ```bash
 # Copy repo to permanent location
-sudo cp -r . /opt/archiver-viewer
-sudo chown -R beamline:beamline /opt/archiver-viewer
+sudo cp -r . /usr/local/epics/archiver-viewer
+sudo chown -R chem_epics:chem_epics /usr/local/epics/archiver-viewer
 
 # Install and enable the systemd service
-sudo cp /opt/archiver-viewer/archiver-viewer.service /etc/systemd/system/archiver-viewer.service
+sudo cp /usr/local/epics/archiver-viewer/archiver-viewer.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable archiver-viewer    # start automatically on every boot
 sudo systemctl start archiver-viewer     # start right now
@@ -125,16 +150,40 @@ http://<beamline-machine-hostname>:8080
 
 ## Configuration
 
-Archiver URLs are set via environment variables in `archiver-viewer.service`:
+### Environment variables
 
-| Variable                 | Default                          |
-|--------------------------|----------------------------------|
-| `ARCHIVER_MGMT_URL`      | `http://164.54.169.92:17665`     |
-| `ARCHIVER_RETRIEVAL_URL` | `http://164.54.169.92:17668`     |
-| `PORT`                   | `8080`                           |
-| `CONFIG_PATH`            | `config/overrides.json`          |
+Set in `archiver-viewer.service` (or exported before running manually):
 
-PV grouping overrides (station labels, device types, manual PV assignments) are stored in `config/overrides.json` and can be edited from the web UI via the **⊞ Groups** or **⚙ JSON** buttons.
+| Variable                  | Default                         | Description                        |
+|---------------------------|---------------------------------|------------------------------------|
+| `ARCHIVER_MGMT_URL`       | `http://164.54.169.92:17665`    | AA management port                 |
+| `ARCHIVER_RETRIEVAL_URL`  | `http://164.54.169.92:17668`    | AA retrieval port                  |
+| `PORT`                    | `8080`                          | HTTP port the app listens on       |
+| `CONFIG_PATH`             | `config/overrides.json`         | Path to the persistent config file |
+
+### Config file (`overrides.json`)
+
+Edited from the web UI (**⊞ Groups** or **⚙ JSON**) or directly on disk.
+Changes take effect immediately — no restart needed.
+
+Key fields:
+
+| Field                | Type     | Description                                      |
+|----------------------|----------|--------------------------------------------------|
+| `pvOverrides`        | object   | Manual PV → station/device/label assignments     |
+| `stationLabels`      | object   | Human-readable station name overrides            |
+| `deviceTypes`        | object   | Device type tags                                 |
+| `hiddenPVs`          | array    | PVs hidden from the browser tree                 |
+| `annotations`        | array    | Saved plot annotations (managed via the UI)      |
+| `annotationPassword` | string   | Password protecting annotation edit/delete (`""` = no protection) |
+| `viewerBaseUrl`      | string   | Base URL for the AA iframe viewer                |
+
+#### Setting the annotation password
+
+Click the **🔓** icon in the Annotations panel header.
+Enter a new password and confirm it — no current password is needed when setting one for the first time.
+To change it later, click **🔒** and provide the current password first.
+To remove protection, leave the new password blank.
 
 ---
 
@@ -157,9 +206,8 @@ journalctl -u archiver-viewer -f
 ### Update to a newer version
 
 ```bash
-cd /opt/archiver-viewer
+cd /usr/local/epics/archiver-viewer
 git pull
-conda env update -f environment.yml --prune
 sudo systemctl restart archiver-viewer
 ```
 
@@ -174,12 +222,14 @@ sudo systemctl restart archiver-viewer
 | Port 8080 already in use | Change `PORT=` in `archiver-viewer.service` and restart |
 | Service won't start | `journalctl -u archiver-viewer -n 50` |
 | PVs missing after adding in AA | Refresh the browser — PV list is fetched fresh on each page load |
+| Plot shows no data for long time ranges | Check AA logs; try Raw mode to verify raw data is accessible |
+| Fast and Raw look identical | Expected for short ranges (< ~30 min) where no decimation is needed; check the point count shown in the toolbar |
 
 ---
 
 ## Development (modifying the frontend)
 
-Only needed if you want to change the React source code.  
+Only needed if you want to change the React source code.
 Requires Node.js 16+ (`conda install -c conda-forge nodejs`).
 
 ```bash
@@ -187,7 +237,7 @@ Requires Node.js 16+ (`conda install -c conda-forge nodejs`).
 cd frontend
 npm install
 
-# Start dev server (hot reload, proxies API to localhost:5050)
+# Start dev server (hot reload, proxies /api to localhost:5050)
 npm run dev
 
 # Build production bundle → writes to ../static/
@@ -197,8 +247,28 @@ git commit -m "Rebuild frontend"
 git push
 ```
 
-The FastAPI backend is in `app.py`. Run it separately during development:
+Run the FastAPI backend separately during development:
 
 ```bash
 PORT=5050 python app.py
 ```
+
+---
+
+## API reference
+
+The backend exposes these endpoints (all proxied from the browser via the same origin):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/pvs` | GET | List all archived PVs |
+| `/api/data` | GET | Fetch PV samples for Plotly. Params: `pv=` (repeatable), `from=`, `to=` (ISO 8601), `points=` (default 1200), `raw=true` |
+| `/api/csv` | GET | Same as `/api/data` but returns a wide-format CSV. Supports the same `points` and `raw` params |
+| `/api/search` | GET | Glob search against the archiver. Param: `pattern=` |
+| `/api/config` | GET / POST | Read or write `overrides.json` |
+
+### Data decimation
+
+`/api/data` and `/api/csv` use AA's `mean_N` post-processor by default, where *N* (seconds per bin) is computed as `floor(range_seconds / points)`. This matches the strategy used by the native AA viewer and keeps response times fast for long time ranges.
+
+Pass `raw=true` to retrieve every archived sample. This can be slow for ranges longer than a few hours depending on the PV's archive rate.
