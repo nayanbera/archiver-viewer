@@ -27,6 +27,7 @@ DEFAULT_CONFIG = {
     "deviceTypes":   {},
     "hiddenPVs":     [],
     "annotations":   [],
+    "annotationPassword": "",
     "viewerBaseUrl":    f"{ARCHIVER_RETRIEVAL_URL}/retrieval/ui/viewer/archViewer.html",
     "viewerUrlFormat":  "query",
 }

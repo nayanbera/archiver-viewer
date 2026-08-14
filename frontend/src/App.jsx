@@ -224,6 +224,15 @@ export default function App() {
     try { await persistConfig({ ...config, annotations: annotations.filter(a => a.id !== id) }); }
     catch (e) { alert(`Failed to delete annotation: ${e.message}`); }
   }, [config, annotations, persistConfig]);
+  const editAnnotation = useCallback(async (id, newNote) => {
+    const updated = annotations.map(a => a.id === id ? { ...a, note: newNote } : a);
+    try { await persistConfig({ ...config, annotations: updated }); }
+    catch (e) { alert(`Failed to update annotation: ${e.message}`); }
+  }, [config, annotations, persistConfig]);
+  const changeAnnotationPassword = useCallback(async newPw => {
+    try { await persistConfig({ ...config, annotationPassword: newPw }); }
+    catch (e) { alert(`Failed to save password: ${e.message}`); }
+  }, [config, persistConfig]);
   const clickAnnotation = useCallback(ann => {
     if (!ann.timeRange) return;
     setTr({ from: new Date(ann.timeRange.from), to: new Date(ann.timeRange.to) });
@@ -461,7 +470,14 @@ export default function App() {
           )}
         </main>
 
-        <AnnotationPanel annotations={annotations} onClickAnnotation={clickAnnotation} onDeleteAnnotation={deleteAnnotation} />
+        <AnnotationPanel
+          annotations={annotations}
+          annotationPassword={config.annotationPassword || ''}
+          onClickAnnotation={clickAnnotation}
+          onDeleteAnnotation={deleteAnnotation}
+          onEditAnnotation={editAnnotation}
+          onChangePassword={changeAnnotationPassword}
+        />
       </div>
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
