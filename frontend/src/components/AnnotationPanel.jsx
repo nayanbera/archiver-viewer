@@ -102,14 +102,22 @@ export default function AnnotationPanel({
   annotations, annotationPassword,
   onClickAnnotation, onDeleteAnnotation, onEditAnnotation, onChangePassword,
 }) {
-  const [gate,        setGate]        = useState(null);   // { action:'delete'|'edit', ann }
+  const [gate,        setGate]        = useState(null);
   const [editingId,   setEditingId]   = useState(null);
   const [editNote,    setEditNote]    = useState('');
   const [showChgPw,   setShowChgPw]   = useState(false);
+  const [search,      setSearch]      = useState('');
 
   const sorted = [...(annotations || [])].sort(
     (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
   );
+
+  const filtered = search.trim()
+    ? sorted.filter(ann =>
+        ann.note.toLowerCase().includes(search.toLowerCase()) ||
+        fmtTs(ann.timestamp).toLowerCase().includes(search.toLowerCase())
+      )
+    : sorted;
 
   const pw = annotationPassword || '';
 
@@ -197,6 +205,19 @@ export default function AnnotationPanel({
         </button>
       </div>
 
+      {/* Search box — only shown when there are annotations */}
+      {sorted.length > 0 && (
+        <div className="px-2 py-1.5 border-b border-gray-100 shrink-0">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search annotations…"
+            className="w-full text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400 placeholder-gray-400"
+          />
+        </div>
+      )}
+
       {sorted.length === 0 ? (
         <div className="flex-1 flex items-center justify-center p-4 text-center">
           <p className="text-xs text-gray-400 leading-relaxed">
@@ -205,9 +226,13 @@ export default function AnnotationPanel({
             {' '}to add an annotation at that timestamp.
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center p-4 text-center">
+          <p className="text-xs text-gray-400">No annotations match <span className="font-mono">"{search}"</span></p>
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          {sorted.map(ann => (
+          {filtered.map(ann => (
             <div
               key={ann.id}
               onClick={() => onClickAnnotation(ann)}
