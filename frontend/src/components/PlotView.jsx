@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import { fmtDTLocal } from '../utils';
 
@@ -39,7 +39,33 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [annTs,     setAnnTs]     = useState('');
   const [rawMode,   setRawMode]   = useState(false);
   const [logY,      setLogY]      = useState(false);
-  const [ptCount,   setPtCount]   = useState(null);  // total points across all PVs after last fetch
+  const [ptCount,   setPtCount]   = useState(null);
+  const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
+
+  // ── Merge plotData into wide-format rows for the table view ───────────
+  const tableData = useMemo(() => {
+    if (!plotData.length) return { pvNames: [], rows: [] };
+    const pvNames = plotData.map(d => d.pv);
+    const tsMap = new Map();
+    plotData.forEach(({ pv, timestamps, values }) => {
+      timestamps.forEach((ts, i) => {
+        if (!tsMap.has(ts)) tsMap.set(ts, {});
+        tsMap.get(ts)[pv] = values[i];
+      });
+    });
+    const rows = [...tsMap.entries()]
+      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([ts, vals]) => ({ ts, vals }));
+    return { pvNames, rows };
+  }, [plotData]);
+
+  const fmtVal = v => {
+    if (v == null) return '—';
+    const n = Number(v);
+    if (isNaN(n)) return String(v);
+    if (Number.isInteger(n)) return n.toLocaleString();
+    return parseFloat(n.toPrecision(6)).toString();
+  };
 
   // ── ResizeObserver so Plotly always fills its container ────────────────
   useLayoutEffect(() => {
@@ -212,6 +238,17 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
           Double-click on the plot to add annotation · Zoom: scroll or box-select · Pan: drag
         </span>
         <button
+          onClick={() => setViewTab(v => v === 'table' ? 'chart' : 'table')}
+          disabled={!plotData.length}
+          title={viewTab === 'table' ? 'Switch to chart view' : 'Switch to table view'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium disabled:opacity-30 ${
+            viewTab === 'table'
+              ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          {viewTab === 'table' ? '📊 Chart' : '📋 Table'}
+        </button>
+        <button
           onClick={() => setLogY(v => !v)}
           title={logY ? 'Y-axis: log scale — click for linear' : 'Y-axis: linear — click for log scale'}
           className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
@@ -265,8 +302,51 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         </div>
       )}
 
-      {/* chart */}
-      <div ref={divRef} className="flex-1 min-h-0 min-w-0" />
+      {/* chart — kept mounted even when table is shown to preserve Plotly state */}
+      <div ref={divRef} className={`flex-1 min-h-0 min-w-0 ${viewTab === 'table' ? 'hidden' : ''}`} />
+
+      {/* table view */}
+      {viewTab === 'table' && (
+        <div className="flex-1 min-h-0 overflow-auto bg-white">
+          {tableData.rows.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+              No data to display
+            </div>
+          ) : (
+            <table className="text-xs w-full border-collapse">
+              <thead className="sticky top-0 z-10 bg-white shadow-sm">
+                <tr className="border-b-2 border-gray-200">
+                  <th className="px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-r border-gray-200 bg-gray-50">
+                    Timestamp (UTC)
+                  </th>
+                  {tableData.pvNames.map((pv, i) => (
+                    <th key={pv}
+                      title={pv}
+                      style={{ color: COLORS[i % COLORS.length] }}
+                      className="px-3 py-2 text-left font-semibold whitespace-nowrap border-r border-gray-200 bg-gray-50 max-w-[160px]">
+                      <span className="block truncate">{pv}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableData.rows.map(({ ts, vals }, i) => (
+                  <tr key={ts} className={`border-b border-gray-100 hover:bg-blue-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                    <td className="px-3 py-1 font-mono text-gray-500 whitespace-nowrap border-r border-gray-100">
+                      {ts.replace('T', ' ').replace(/\.\d+Z$/, ' Z')}
+                    </td>
+                    {tableData.pvNames.map(pv => (
+                      <td key={pv} className="px-3 py-1 font-mono text-gray-700 whitespace-nowrap border-r border-gray-100 text-right">
+                        {fmtVal(vals[pv])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
