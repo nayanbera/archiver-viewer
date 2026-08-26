@@ -2,6 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import { fmtDTLocal } from '../utils';
 
+const LIVE_WINDOW_MS  = 2 * 60 * 1000; // rolling 2-min window
+const LIVE_REFRESH_MS = 5_000;          // re-fetch every 5 s
+
 const COLORS = [
   '#2563eb','#dc2626','#16a34a','#9333ea','#ea580c',
   '#0891b2','#be185d','#ca8a04','#166534','#1e40af',
@@ -27,9 +30,11 @@ function buildAnnLabels(annotations) {
 }
 
 export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnnotation, onTimeRangeChange }) {
-  const divRef     = useRef(null);
-  const readyRef   = useRef(false);
+  const divRef      = useRef(null);
+  const readyRef    = useRef(false);
   const capturedRef = useRef(null); // {pvs, from, to} at last Plot click
+  const pvsRef      = useRef(pvs);
+  useEffect(() => { pvsRef.current = pvs; }, [pvs]);
 
   const [plotData,  setPlotData]  = useState([]);
   const [loading,   setLoading]   = useState(false);
@@ -41,6 +46,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [logY,      setLogY]      = useState(false);
   const [ptCount,   setPtCount]   = useState(null);
   const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
+  const [liveMode,  setLiveMode]  = useState(false);
 
   // ── Merge plotData into wide-format rows for the table view ───────────
   const tableData = useMemo(() => {
@@ -192,6 +198,43 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     if (divRef.current) { Plotly.purge(divRef.current); readyRef.current = false; }
   }, []);
 
+  // ── live mode ──────────────────────────────────────────────────────────
+  // Turn live off whenever the user requests a new plot (plotKey bump).
+  useEffect(() => { setLiveMode(false); }, [plotKey]);
+
+  useEffect(() => {
+    if (!liveMode || !plotKey) return;
+    let active = true;
+
+    const tick = async () => {
+      const currentPvs = pvsRef.current;
+      if (!currentPvs?.length) return;
+      const now  = new Date();
+      const from = new Date(now - LIVE_WINDOW_MS);
+      capturedRef.current = { pvs: currentPvs, from, to: now };
+      try {
+        const params = new URLSearchParams();
+        currentPvs.forEach(pv => params.append('pv', pv));
+        params.set('from', from.toISOString());
+        params.set('to',   now.toISOString());
+        params.set('raw', 'true');
+        const r = await fetch(`/api/data?${params}`);
+        if (!r.ok || !active) return;
+        const data = await r.json();
+        if (!active) return;
+        setPlotData(data);
+        setPtCount(data.reduce((s, d) => s + (d.timestamps?.length ?? 0), 0));
+        setError('');
+      } catch (e) {
+        if (active) setError(e.message);
+      }
+    };
+
+    tick();
+    const id = setInterval(tick, LIVE_REFRESH_MS);
+    return () => { active = false; clearInterval(id); };
+  }, [liveMode, plotKey]);
+
   const handleSave = () => {
     if (!annNote.trim()) return;
     const cap = capturedRef.current;
@@ -231,7 +274,8 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
               {ptCount.toLocaleString()} pts
             </span>
           )}
-          {loading && <span className="text-blue-500 animate-pulse">Fetching…</span>}
+          {loading && !liveMode && <span className="text-blue-500 animate-pulse">Fetching…</span>}
+          {liveMode && <span className="text-green-600 font-medium animate-pulse">● 2 min live</span>}
           {error   && <span className="text-red-500 truncate">{error}</span>}
         </span>
         <span className="text-[10px] text-gray-400 hidden sm:inline">
@@ -269,6 +313,18 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
               : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
           }`}>
           {rawMode ? 'Raw' : 'Fast'}
+        </button>
+        <button
+          onClick={() => setLiveMode(v => !v)}
+          title={liveMode
+            ? 'Live — last 2 min, refreshing every 5 s. Click to stop.'
+            : 'Start live plot — last 2 min window, auto-refreshes every 5 s'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
+            liveMode
+              ? 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          {liveMode ? <span className="animate-pulse">● Live</span> : 'Live'}
         </button>
         <button onClick={() => setShowForm(v => !v)}
           title="Add a timestamped note to this plot"
