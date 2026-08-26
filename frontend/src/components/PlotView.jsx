@@ -298,17 +298,6 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     }
   }, [plotData, logY]); // reruns when data changes or log/linear is toggled
 
-  // ── resize chart when its div becomes visible again after being hidden ──
-  // useLayoutEffect fires before the browser computes layout, so the div still
-  // has zero dimensions at that point. rAF defers until after the first paint.
-  useEffect(() => {
-    if (viewTab !== 'chart' || !readyRef.current || !divRef.current) return;
-    const div = divRef.current;
-    const id = requestAnimationFrame(() => {
-      if (readyRef.current && div) Plotly.Plots.resize(div);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [viewTab]);
 
   // ── annotation-only update — preserves zoom ────────────────────────────
   useEffect(() => {
@@ -508,54 +497,63 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         </div>
       )}
 
-      {/* chart — kept mounted even in other views to preserve Plotly state */}
-      <div ref={divRef} className={`flex-1 min-h-0 min-w-0 ${viewTab !== 'chart' ? 'hidden' : ''}`} />
+      {/* content area — chart is always absolute/full-size so Plotly keeps correct dimensions;
+           table and corr views overlay it rather than replacing it */}
+      <div className="flex-1 min-h-0 relative">
 
-      {/* correlation view */}
-      {viewTab === 'corr' && <CorrelationView plotData={plotData} />}
+        {/* chart — always mounted at full size; never display:none */}
+        <div ref={divRef} className="absolute inset-0" />
 
-      {/* table view */}
-      {viewTab === 'table' && (
-        <div className="flex-1 min-h-0 overflow-auto bg-white">
-          {tableData.rows.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-              No data to display
-            </div>
-          ) : (
-            <table className="text-xs w-full border-collapse">
-              <thead className="sticky top-0 z-10 bg-white shadow-sm">
-                <tr className="border-b-2 border-gray-200">
-                  <th className="px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-r border-gray-200 bg-gray-50">
-                    Timestamp (UTC)
-                  </th>
-                  {tableData.pvNames.map((pv, i) => (
-                    <th key={pv}
-                      title={pv}
-                      style={{ color: COLORS[i % COLORS.length] }}
-                      className="px-3 py-2 text-left font-semibold whitespace-nowrap border-r border-gray-200 bg-gray-50 max-w-[160px]">
-                      <span className="block truncate">{pv}</span>
+        {/* correlation overlay */}
+        {viewTab === 'corr' && (
+          <div className="absolute inset-0 z-10 bg-white">
+            <CorrelationView plotData={plotData} />
+          </div>
+        )}
+
+        {/* table overlay */}
+        {viewTab === 'table' && (
+          <div className="absolute inset-0 z-10 overflow-auto bg-white">
+            {tableData.rows.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                No data to display
+              </div>
+            ) : (
+              <table className="text-xs w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-white shadow-sm">
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-r border-gray-200 bg-gray-50">
+                      Timestamp (UTC)
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableData.rows.map(({ ts, vals }, i) => (
-                  <tr key={ts} className={`border-b border-gray-100 hover:bg-blue-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
-                    <td className="px-3 py-1 font-mono text-gray-500 whitespace-nowrap border-r border-gray-100">
-                      {ts.replace('T', ' ').replace(/\.\d+Z$/, ' Z')}
-                    </td>
-                    {tableData.pvNames.map(pv => (
-                      <td key={pv} className="px-3 py-1 font-mono text-gray-700 whitespace-nowrap border-r border-gray-100 text-right">
-                        {fmtVal(vals[pv])}
-                      </td>
+                    {tableData.pvNames.map((pv, i) => (
+                      <th key={pv}
+                        title={pv}
+                        style={{ color: COLORS[i % COLORS.length] }}
+                        className="px-3 py-2 text-left font-semibold whitespace-nowrap border-r border-gray-200 bg-gray-50 max-w-[160px]">
+                        <span className="block truncate">{pv}</span>
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+                </thead>
+                <tbody>
+                  {tableData.rows.map(({ ts, vals }, i) => (
+                    <tr key={ts} className={`border-b border-gray-100 hover:bg-blue-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                      <td className="px-3 py-1 font-mono text-gray-500 whitespace-nowrap border-r border-gray-100">
+                        {ts.replace('T', ' ').replace(/\.\d+Z$/, ' Z')}
+                      </td>
+                      {tableData.pvNames.map(pv => (
+                        <td key={pv} className="px-3 py-1 font-mono text-gray-700 whitespace-nowrap border-r border-gray-100 text-right">
+                          {fmtVal(vals[pv])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
