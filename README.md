@@ -25,7 +25,7 @@ Browse PVs grouped by experimental station and device, select multiple PVs, and 
 - **Fast / Raw toggle** — Fast mode uses AA's `mean_N` operator to return ~1 200 representative points (same speed as the native AA viewer); Raw mode fetches every archived sample. Point count shown live in the toolbar.
 - **Lin Y / Log Y toggle** — switch Y-axis between linear and logarithmic scale
 - **📋 Table view** — toggle between chart and a scrollable wide-format data table (same layout as the CSV export). PV column headers are colour-coded to match chart traces; missing values shown as `—`. Switching back to the chart requires no re-fetch.
-- **● Live mode** — click **Live** in the toolbar to enter a rolling 2-minute window that auto-refreshes every 5 s. A pulsing green indicator confirms live mode is active. Clicking a time preset or **▶ Plot** exits live mode and returns to the selected time range.
+- **● Live mode** — click **Live** in the toolbar to enter a rolling window that mirrors the currently plotted time range (5 min preset → rolling 5-min live view; 8 h preset → rolling 8-h live view) and auto-refreshes every 5 s. The pulsing green indicator shows the active window duration. Clicking a time preset or **▶ Plot** exits live mode and returns to the selected historical range.
 - Export plotted data as **CSV** (matches plot decimation by default; tick *Export all raw samples* for full resolution)
 
 ### Annotations

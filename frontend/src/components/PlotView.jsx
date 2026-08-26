@@ -2,8 +2,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import { fmtDTLocal } from '../utils';
 
-const LIVE_WINDOW_MS  = 2 * 60 * 1000; // rolling 2-min window
-const LIVE_REFRESH_MS = 5_000;          // re-fetch every 5 s
+const DEFAULT_LIVE_WINDOW_MS = 2 * 60 * 1000; // fallback when no range is captured yet
+const LIVE_REFRESH_MS        = 5_000;          // re-fetch every 5 s
+
+// Format a millisecond duration for the Live indicator (e.g. "5 min", "1.5 h", "7 d")
+function fmtWindow(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 3600)  return `${Math.round(s / 60)} min`;
+  if (s < 86400) return `${+(s / 3600).toFixed(1)} h`;
+  return `${Math.round(s / 86400)} d`;
+}
 
 const COLORS = [
   '#2563eb','#dc2626','#16a34a','#9333ea','#ea580c',
@@ -209,15 +217,22 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const tick = async () => {
       const currentPvs = pvsRef.current;
       if (!currentPvs?.length) return;
+      // Derive rolling window from the last plotted range; fall back to default.
+      const cap = capturedRef.current;
+      const windowMs = cap ? (cap.to - cap.from) : DEFAULT_LIVE_WINDOW_MS;
       const now  = new Date();
-      const from = new Date(now - LIVE_WINDOW_MS);
+      const from = new Date(now - windowMs);
       capturedRef.current = { pvs: currentPvs, from, to: now };
       try {
         const params = new URLSearchParams();
         currentPvs.forEach(pv => params.append('pv', pv));
         params.set('from', from.toISOString());
         params.set('to',   now.toISOString());
-        params.set('raw', 'true');
+        if (rawMode) {
+          params.set('raw', 'true');
+        } else {
+          params.set('points', '1200');
+        }
         const r = await fetch(`/api/data?${params}`);
         if (!r.ok || !active) return;
         const data = await r.json();
@@ -233,7 +248,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     tick();
     const id = setInterval(tick, LIVE_REFRESH_MS);
     return () => { active = false; clearInterval(id); };
-  }, [liveMode, plotKey]);
+  }, [liveMode, plotKey, rawMode]);
 
   const handleSave = () => {
     if (!annNote.trim()) return;
@@ -275,7 +290,11 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
             </span>
           )}
           {loading && !liveMode && <span className="text-blue-500 animate-pulse">Fetching…</span>}
-          {liveMode && <span className="text-green-600 font-medium animate-pulse">● 2 min live</span>}
+          {liveMode && (
+            <span className="text-green-600 font-medium animate-pulse">
+              ● {fmtWindow(capturedRef.current ? capturedRef.current.to - capturedRef.current.from : DEFAULT_LIVE_WINDOW_MS)} live
+            </span>
+          )}
           {error   && <span className="text-red-500 truncate">{error}</span>}
         </span>
         <span className="text-[10px] text-gray-400 hidden sm:inline">
@@ -317,8 +336,8 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         <button
           onClick={() => setLiveMode(v => !v)}
           title={liveMode
-            ? 'Live — last 2 min, refreshing every 5 s. Click to stop.'
-            : 'Start live plot — last 2 min window, auto-refreshes every 5 s'}
+            ? `Live — rolling ${fmtWindow(capturedRef.current ? capturedRef.current.to - capturedRef.current.from : DEFAULT_LIVE_WINDOW_MS)} window, refreshing every 5 s. Click to stop.`
+            : `Start live plot — rolls the currently plotted time range forward every 5 s`}
           className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
             liveMode
               ? 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100'
