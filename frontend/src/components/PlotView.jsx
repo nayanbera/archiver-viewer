@@ -110,6 +110,8 @@ function CorrelationView({ plotData }) {
         responsive: true, displayModeBar: true, displaylogo: false,
         modeBarButtonsToRemove: ['sendDataToCloud'],
       });
+      // Resize after browser lays out the grid so Plotly fills the cell correctly.
+      requestAnimationFrame(() => { if (div) Plotly.Plots.resize(div); });
     });
   }, [plotData, pairs]);
 
@@ -295,6 +297,13 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       Plotly.react(divRef.current, traces, layout, cfg);
     }
   }, [plotData, logY]); // reruns when data changes or log/linear is toggled
+
+  // ── resize chart when its div becomes visible again after being hidden ──
+  useLayoutEffect(() => {
+    if (viewTab === 'chart' && readyRef.current && divRef.current) {
+      Plotly.Plots.resize(divRef.current);
+    }
+  }, [viewTab]);
 
   // ── annotation-only update — preserves zoom ────────────────────────────
   useEffect(() => {
