@@ -37,6 +37,110 @@ function buildAnnLabels(annotations) {
   }));
 }
 
+// ── correlation helpers ────────────────────────────────────────────────────
+
+// Linear interpolation of vals at targetMs given parallel epochMs/vals arrays.
+function interpolateAt(epochMs, vals, targetMs) {
+  if (!epochMs.length) return null;
+  if (targetMs <= epochMs[0]) return vals[0];
+  if (targetMs >= epochMs[epochMs.length - 1]) return vals[epochMs.length - 1];
+  let lo = 0, hi = epochMs.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (epochMs[mid] <= targetMs) lo = mid; else hi = mid;
+  }
+  const dt = epochMs[hi] - epochMs[lo];
+  return dt === 0 ? vals[lo] : vals[lo] + (vals[hi] - vals[lo]) * (targetMs - epochMs[lo]) / dt;
+}
+
+function pearsonR(x, y) {
+  const n = x.length;
+  if (n < 2) return NaN;
+  const mx = x.reduce((a, b) => a + b, 0) / n;
+  const my = y.reduce((a, b) => a + b, 0) / n;
+  let num = 0, sx = 0, sy = 0;
+  for (let k = 0; k < n; k++) {
+    const dx = x[k] - mx, dy = y[k] - my;
+    num += dx * dy; sx += dx * dx; sy += dy * dy;
+  }
+  const den = Math.sqrt(sx * sy);
+  return den === 0 ? 0 : num / den;
+}
+
+function CorrelationView({ plotData }) {
+  const refs = useRef([]);
+
+  const pairs = useMemo(() => {
+    const ps = [];
+    for (let i = 0; i < plotData.length; i++)
+      for (let j = i + 1; j < plotData.length; j++)
+        ps.push([i, j]);
+    return ps;
+  }, [plotData]);
+
+  useEffect(() => {
+    pairs.forEach(([i, j], k) => {
+      const div = refs.current[k];
+      if (!div) return;
+      const d0 = plotData[i], d1 = plotData[j];
+      const ts1 = d1.timestamps.map(t => Date.parse(t));
+      const x = [], y = [];
+      d0.timestamps.forEach((ts, idx) => {
+        const v = interpolateAt(ts1, d1.values, Date.parse(ts));
+        if (v !== null) { x.push(d0.values[idx]); y.push(v); }
+      });
+      const r = pearsonR(x, y);
+      const rLabel = Number.isFinite(r) ? `r = ${r.toFixed(3)}` : '';
+      Plotly.react(div, [{
+        x, y, type: 'scatter', mode: 'markers',
+        marker: { size: 4, color: COLORS[i % COLORS.length], opacity: 0.65 },
+        hovertemplate: `x: %{x:.4g}<br>y: %{y:.4g}<extra>${d0.pv} vs ${d1.pv}</extra>`,
+      }], {
+        annotations: rLabel ? [{
+          x: 0.02, y: 0.98, xref: 'paper', yref: 'paper',
+          text: rLabel, showarrow: false, xanchor: 'left', yanchor: 'top',
+          font: { size: 12, color: '#374151' },
+          bgcolor: 'rgba(255,255,255,0.82)', borderpad: 3,
+        }] : [],
+        margin: { t: 12, r: 12, b: 58, l: 68 },
+        xaxis: { title: { text: d0.pv, font: { size: 9 } }, automargin: true },
+        yaxis: { title: { text: d1.pv, font: { size: 9 } }, automargin: true },
+        plot_bgcolor: '#f9fafb', paper_bgcolor: '#ffffff',
+      }, {
+        responsive: true, displayModeBar: true, displaylogo: false,
+        modeBarButtonsToRemove: ['sendDataToCloud'],
+      });
+    });
+  }, [plotData, pairs]);
+
+  // Purge on unmount
+  useEffect(() => () => {
+    refs.current.forEach(div => { if (div) Plotly.purge(div); });
+  }, []);
+
+  if (pairs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-400 text-sm select-none">
+        {plotData.length < 2
+          ? 'Select at least 2 PVs and click Plot to see correlations'
+          : 'No data to correlate'}
+      </div>
+    );
+  }
+
+  const cols = pairs.length === 1 ? 1 : pairs.length <= 4 ? 2 : 3;
+  return (
+    <div className="h-full overflow-auto p-2 grid gap-2"
+         style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: 'minmax(300px, 1fr)' }}>
+      {pairs.map(([i, j], k) => (
+        <div key={`${i}-${j}`}
+             ref={el => { refs.current[k] = el; }}
+             className="border border-gray-200 rounded bg-white min-h-0" />
+      ))}
+    </div>
+  );
+}
+
 export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnnotation, onTimeRangeChange }) {
   const divRef      = useRef(null);
   const readyRef    = useRef(false);
@@ -312,6 +416,19 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
           {viewTab === 'table' ? '📊 Chart' : '📋 Table'}
         </button>
         <button
+          onClick={() => setViewTab(v => v === 'corr' ? 'chart' : 'corr')}
+          disabled={plotData.length < 2}
+          title={plotData.length < 2
+            ? 'Need at least 2 PVs plotted'
+            : viewTab === 'corr' ? 'Switch to chart view' : 'Show pairwise XY scatter (correlation)'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium disabled:opacity-30 ${
+            viewTab === 'corr'
+              ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          {viewTab === 'corr' ? '📊 Chart' : '🔗 Corr'}
+        </button>
+        <button
           onClick={() => setLogY(v => !v)}
           title={logY ? 'Y-axis: log scale — click for linear' : 'Y-axis: linear — click for log scale'}
           className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
@@ -377,8 +494,11 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         </div>
       )}
 
-      {/* chart — kept mounted even when table is shown to preserve Plotly state */}
-      <div ref={divRef} className={`flex-1 min-h-0 min-w-0 ${viewTab === 'table' ? 'hidden' : ''}`} />
+      {/* chart — kept mounted even in other views to preserve Plotly state */}
+      <div ref={divRef} className={`flex-1 min-h-0 min-w-0 ${viewTab !== 'chart' ? 'hidden' : ''}`} />
+
+      {/* correlation view */}
+      {viewTab === 'corr' && <CorrelationView plotData={plotData} />}
 
       {/* table view */}
       {viewTab === 'table' && (
