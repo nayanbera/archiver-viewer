@@ -299,10 +299,15 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   }, [plotData, logY]); // reruns when data changes or log/linear is toggled
 
   // ── resize chart when its div becomes visible again after being hidden ──
-  useLayoutEffect(() => {
-    if (viewTab === 'chart' && readyRef.current && divRef.current) {
-      Plotly.Plots.resize(divRef.current);
-    }
+  // useLayoutEffect fires before the browser computes layout, so the div still
+  // has zero dimensions at that point. rAF defers until after the first paint.
+  useEffect(() => {
+    if (viewTab !== 'chart' || !readyRef.current || !divRef.current) return;
+    const div = divRef.current;
+    const id = requestAnimationFrame(() => {
+      if (readyRef.current && div) Plotly.Plots.resize(div);
+    });
+    return () => cancelAnimationFrame(id);
   }, [viewTab]);
 
   // ── annotation-only update — preserves zoom ────────────────────────────
