@@ -16,7 +16,7 @@ Restart=always
 RestartSec=5
 
 # Environment — edit archiver IPs/ports if they differ
-Environment="PORT=8080"
+Environment="PORT=8091"
 Environment="ARCHIVER_MGMT_URL=http://164.54.169.92:17665"
 Environment="ARCHIVER_RETRIEVAL_URL=http://164.54.169.92:17668"
 Environment="CONFIG_PATH=/usr/local/epics/archiver-viewer/config/overrides.json"

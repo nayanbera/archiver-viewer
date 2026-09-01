@@ -262,7 +262,7 @@ app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8080"))
+    port = int(os.getenv("PORT", "8091"))
     log.info("=" * 50)
     log.info("  Archiver Viewer running at http://localhost:%d", port)
     log.info("=" * 50)
