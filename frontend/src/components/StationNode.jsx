@@ -3,7 +3,7 @@ import DeviceNode from './DeviceNode';
 
 export default function StationNode({ stName, devices, selPVs, onTogglePV,
                                       expanded, onToggleExp, expandedDevs, onToggleDev,
-                                      stLabel, config }) {
+                                      stLabel, config, pvAliases, onPVContextMenu }) {
   const allPVs  = Object.values(devices).flat();
   const selCnt  = allPVs.filter(p => selPVs.has(p)).length;
   const all     = selCnt === allPVs.length && allPVs.length > 0;
@@ -38,6 +38,8 @@ export default function StationNode({ stName, devices, selPVs, onTogglePV,
               onToggleExp={onToggleDev}
               devType={config?.deviceTypes?.[`${stName}:${dev}`]}
               pvLabels={config?.pvLabels}
+              pvAliases={pvAliases}
+              onPVContextMenu={onPVContextMenu}
             />
           ))}
         </div>

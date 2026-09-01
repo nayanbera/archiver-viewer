@@ -9,7 +9,8 @@ const TYPE_BADGE = {
 };
 
 export default function DeviceNode({ stName, devName, pvs, selPVs, onTogglePV,
-                                     expanded, onToggleExp, devType, pvLabels }) {
+                                     expanded, onToggleExp, devType, pvLabels,
+                                     pvAliases, onPVContextMenu }) {
   const devKey = `${stName}::${devName}`;
   const total  = pvs.length;
   const selCnt = pvs.filter(p => selPVs.has(p)).length;
@@ -42,7 +43,8 @@ export default function DeviceNode({ stName, devName, pvs, selPVs, onTogglePV,
           {pvs.map(pv => (
             <PVItem key={pv} pv={pv} selected={selPVs.has(pv)}
               onToggle={() => onTogglePV(pv)}
-              label={pvLabels?.[pv]} />
+              label={pvAliases?.[pv] || pvLabels?.[pv]}
+              onPVContextMenu={onPVContextMenu} />
           ))}
         </div>
       )}

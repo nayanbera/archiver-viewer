@@ -182,7 +182,7 @@ function CorrelationView({ plotData }) {
   );
 }
 
-export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnnotation, onTimeRangeChange }) {
+export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnnotation, onTimeRangeChange, pvAliases = {} }) {
   const divRef      = useRef(null);
   const readyRef    = useRef(false);
   const capturedRef = useRef(null); // {pvs, from, to} at last Plot click
@@ -291,16 +291,22 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const usingSplit = splitY && !normMode && plotData.length > 1;
     const usingNorm  = normMode;
 
+    // Resolve display name: alias takes priority over raw PV name.
+    const displayName = pv => pvAliases[pv] || pv;
+    // Short label for axis title: alias if set, else last ':' segment.
+    const shortName   = pv => pvAliases[pv] || pv.split(':').pop();
+
     const splitInfo  = usingSplit
-      ? buildSplitYAxes(plotData.map(d => d.pv), COLORS, fontSize)
+      ? buildSplitYAxes(plotData.map(d => displayName(d.pv)), COLORS, fontSize)
       : { axes: {}, xEnd: undefined, marginR: 12, marginB: 52 };
 
     const traces = plotData.map((d, i) => {
       const yVals = usingNorm ? normalize(d.values) : d.values;
+      const name  = displayName(d.pv);
       return {
         x: d.timestamps,
         y: yVals,
-        name: d.pv,
+        name,
         type: 'scatter',
         mode: 'lines',
         line: { color: COLORS[i % COLORS.length], width: 1.5, shape: 'hv' },
@@ -308,14 +314,13 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         // In norm mode show actual value in hover; normalised value is secondary.
         ...(usingNorm ? {
           customdata: d.values,
-          hovertemplate: `${d.pv}: %{customdata:.6g}<extra></extra>`,
+          hovertemplate: `${name}: %{customdata:.6g}<extra></extra>`,
         } : {}),
       };
     });
 
-    // In Split-Y mode the first left axis also gets a short coloured title;
-    // the bottom legend is hidden because each axis already labels its PV.
-    const firstShort = plotData[0]?.pv.split(':').pop() ?? 'Value';
+    // In Split-Y mode the first left axis gets a short coloured title.
+    const firstShort = shortName(plotData[0]?.pv ?? '');
 
     const layout = {
       font: { size: fontSize },   // global default — cascades to all text not explicitly overridden
@@ -390,7 +395,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
     }
-  }, [plotData, logY, normMode, splitY, fontSize]); // reruns when data or display mode changes
+  }, [plotData, logY, normMode, splitY, fontSize, pvAliases]); // reruns when data or display mode changes
 
   // Persist font size across page loads.
   useEffect(() => {

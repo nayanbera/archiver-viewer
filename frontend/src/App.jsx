@@ -86,6 +86,10 @@ export default function App() {
   const [fetchErr, setFetchErr] = useState(null);
   const [modal,    setModal]    = useState(null);
 
+  // ── PV alias context menu ──────────────────────────────────────────────
+  // ctxMenu: { pv, x, y, editing, input } | null
+  const [ctxMenu,  setCtxMenu]  = useState(null);
+
   // ── unified sidebar search ─────────────────────────────────────────────
   const [searchMode,    setSearchMode]    = useState('filter'); // 'filter'|'glob'|'regex'
   const [searchQuery,   setSearchQuery]   = useState('');
@@ -213,6 +217,22 @@ export default function App() {
     try { await persistConfig(newCfg); setModal(null); }
     catch (e) { alert(`Failed to save: ${e.message}`); }
   }, [persistConfig]);
+
+  // ── PV aliases ─────────────────────────────────────────────────────────
+  const pvAliases = config.pvAliases || {};
+
+  const openAliasMenu = useCallback((pv, x, y) => {
+    setCtxMenu({ pv, x, y, editing: false, input: '' });
+  }, []);
+
+  const saveAlias = useCallback(async (pv, alias) => {
+    const trimmed = alias.trim();
+    const next = { ...pvAliases };
+    if (trimmed) next[pv] = trimmed;
+    else delete next[pv];
+    try { await persistConfig({ ...config, pvAliases: next }); }
+    catch (e) { alert(`Failed to save alias: ${e.message}`); }
+  }, [config, pvAliases, persistConfig]);
 
   // ── annotations ────────────────────────────────────────────────────────
   const annotations = config.annotations || [];
@@ -394,7 +414,8 @@ export default function App() {
                   selPVs={selPVs} onTogglePV={togglePV}
                   expanded={expSt.has(st)} onToggleExp={toggleSt}
                   expandedDevs={expDev} onToggleDev={toggleDev}
-                  stLabel={config?.stationLabels?.[st]} config={config} />
+                  stLabel={config?.stationLabels?.[st]} config={config}
+                  pvAliases={pvAliases} onPVContextMenu={openAliasMenu} />
               ))}
             </div>
           ) : (
@@ -436,13 +457,20 @@ export default function App() {
                     </label>
                   </div>
                   <div className="px-2 py-1">
-                    {searchResults.map(pv => (
-                      <div key={pv} onClick={() => togglePV(pv)}
-                        className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer hover:bg-blue-50 ${selPVs.has(pv) ? 'bg-blue-50' : ''}`}>
-                        <Checkbox checked={selPVs.has(pv)} partial={false} onChange={() => togglePV(pv)} />
-                        <span className="font-mono text-xs text-gray-600 truncate" title={pv}>{pv}</span>
-                      </div>
-                    ))}
+                    {searchResults.map(pv => {
+                      const alias = pvAliases[pv];
+                      return (
+                        <div key={pv} onClick={() => togglePV(pv)}
+                          onContextMenu={e => { e.preventDefault(); openAliasMenu(pv, e.clientX, e.clientY); }}
+                          className={`flex items-center gap-2 px-2 py-[3px] rounded cursor-pointer hover:bg-blue-50 ${selPVs.has(pv) ? 'bg-blue-50' : ''}`}>
+                          <Checkbox checked={selPVs.has(pv)} partial={false} onChange={() => togglePV(pv)} />
+                          <span className={`font-mono text-xs truncate ${alias ? 'text-blue-700 font-semibold' : 'text-gray-600'}`}
+                                title={alias ? pv : undefined}>
+                            {alias || pv}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -454,7 +482,8 @@ export default function App() {
         <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
           {viewMode === 'plotly' ? (
             <PlotView pvs={plotPvs} from={tr.from} to={tr.to} plotKey={plotKey}
-              annotations={annotations} onAddAnnotation={addAnnotation} onTimeRangeChange={setTr} />
+              annotations={annotations} onAddAnnotation={addAnnotation} onTimeRangeChange={setTr}
+              pvAliases={pvAliases} />
           ) : (
             viewerUrl
               ? <iframe key={viewerKey} src={viewerUrl} title="AA Viewer"
@@ -489,6 +518,66 @@ export default function App() {
       )}
       {modal === 'groups' && <GroupsModal config={config} pvList={pvList} onSave={saveConfig} onClose={() => setModal(null)} />}
       {modal === 'json'   && <JsonModal config={config} onSave={saveConfig} onClose={() => setModal(null)} />}
+
+      {/* PV alias context menu */}
+      {ctxMenu && (
+        <div className="fixed inset-0 z-50" onMouseDown={() => setCtxMenu(null)}>
+          <div className="absolute bg-white border border-gray-200 rounded-lg shadow-xl py-1 w-64"
+               style={{ left: Math.min(ctxMenu.x, window.innerWidth  - 272),
+                        top:  Math.min(ctxMenu.y, window.innerHeight - 160) }}
+               onMouseDown={e => e.stopPropagation()}>
+
+            {/* PV name header */}
+            <div className="px-3 py-1.5 border-b border-gray-100">
+              <div className="text-[10px] text-gray-400 font-mono truncate" title={ctxMenu.pv}>{ctxMenu.pv}</div>
+              {pvAliases[ctxMenu.pv] && (
+                <div className="text-xs text-blue-600 font-semibold mt-0.5">"{pvAliases[ctxMenu.pv]}"</div>
+              )}
+            </div>
+
+            {ctxMenu.editing ? (
+              /* Alias input */
+              <div className="px-3 py-2 space-y-2">
+                <input autoFocus
+                  value={ctxMenu.input}
+                  onChange={e => setCtxMenu(m => ({ ...m, input: e.target.value }))}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { saveAlias(ctxMenu.pv, ctxMenu.input); setCtxMenu(null); }
+                    if (e.key === 'Escape') setCtxMenu(null);
+                  }}
+                  placeholder="Enter alias…"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+                <div className="flex gap-1.5">
+                  <button onClick={() => { saveAlias(ctxMenu.pv, ctxMenu.input); setCtxMenu(null); }}
+                    className="flex-1 text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+                    Save
+                  </button>
+                  <button onClick={() => setCtxMenu(null)}
+                    className="text-xs px-2 py-1 text-gray-500 border border-gray-200 rounded hover:bg-gray-50 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Action list */
+              <>
+                <button onClick={() => setCtxMenu(m => ({ ...m, editing: true, input: pvAliases[m.pv] || '' }))}
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2 transition-colors">
+                  <span>✏</span>
+                  <span>{pvAliases[ctxMenu.pv] ? 'Edit alias' : 'Set alias…'}</span>
+                </button>
+                {pvAliases[ctxMenu.pv] && (
+                  <button onClick={() => { saveAlias(ctxMenu.pv, ''); setCtxMenu(null); }}
+                    className="w-full text-left text-xs px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2 transition-colors">
+                    <span>✕</span>
+                    <span>Clear alias</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
