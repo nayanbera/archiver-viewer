@@ -19,23 +19,41 @@ const COLORS = [
 ];
 
 // Build extra Y-axis layout entries for Split-Y mode.
-// All extra axes go on the right; autoshift keeps them from overlapping.
-function buildSplitYAxes(n, colors) {
+// Each extra axis is placed at an explicit paper-coordinate position on the right
+// so tick labels from different axes never overlap.
+// Returns { axes, xEnd, marginR, marginB }.
+function buildSplitYAxes(pvNames, colors) {
+  const n = pvNames.length;
+  if (n <= 1) return { axes: {}, xEnd: undefined, marginR: 12, marginB: 52 };
+
+  // 0.07 paper-units per extra right axis; first axis sits at xEnd.
+  const STEP     = 0.07;
+  const numExtra = n - 1;
+  const xEnd     = Math.max(0.35, 1.0 - numExtra * STEP);
+  const marginR  = 15 + numExtra * 68;   // pixels — room for tick labels + axis line
+
+  // Short label: last ':'-delimited segment of the PV name.
+  const short = pv => pv.split(':').pop();
+
   const axes = {};
   for (let i = 1; i < n; i++) {
+    const pos   = xEnd + (i - 1) * STEP;
+    const color = colors[i % colors.length];
     axes[`yaxis${i + 1}`] = {
+      title: { text: short(pvNames[i]), font: { size: 9, color } },
       overlaying: 'y',
       side: 'right',
-      autoshift: true,  // Plotly 2.15+ — auto-offset so axes don't overlap
+      anchor: 'free',
+      position: pos,
       showgrid: false,
       zeroline: false,
       showline: true,
-      tickfont: { color: colors[i % colors.length], size: 9 },
-      tickcolor: colors[i % colors.length],
-      linecolor: colors[i % colors.length],
+      tickfont:  { color, size: 9 },
+      tickcolor: color,
+      linecolor: color,
     };
   }
-  return axes;
+  return { axes, xEnd, marginR, marginB: 20 };
 }
 
 function buildShapes(annotations) {
@@ -268,6 +286,10 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const usingSplit = splitY && !normMode && plotData.length > 1;
     const usingNorm  = normMode;
 
+    const splitInfo  = usingSplit
+      ? buildSplitYAxes(plotData.map(d => d.pv), COLORS)
+      : { axes: {}, xEnd: undefined, marginR: 12, marginB: 52 };
+
     const traces = plotData.map((d, i) => {
       const yVals = usingNorm ? normalize(d.values) : d.values;
       return {
@@ -286,22 +308,32 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       };
     });
 
-    const extraAxes = usingSplit ? plotData.length - 1 : 0;
+    // In Split-Y mode the first left axis also gets a short coloured title;
+    // the bottom legend is hidden because each axis already labels its PV.
+    const firstShort = plotData[0]?.pv.split(':').pop() ?? 'Value';
 
     const layout = {
-      margin: { t: 24, r: 12 + extraAxes * 55, b: 52, l: 64 },
+      margin: { t: 24, r: splitInfo.marginR, b: splitInfo.marginB, l: 64 },
       xaxis: {
         type: 'date',
         range: cap ? [cap.from.toISOString(), cap.to.toISOString()] : undefined,
+        ...(splitInfo.xEnd !== undefined ? { domain: [0, splitInfo.xEnd] } : {}),
         title: { text: 'Time (UTC)', font: { size: 11 } },
       },
       yaxis: {
-        title: { text: usingNorm ? 'Normalized [0 – 1]' : 'Value', font: { size: 11 } },
+        title: usingSplit
+          ? { text: firstShort, font: { size: 9, color: COLORS[0] } }
+          : { text: usingNorm ? 'Normalized [0 – 1]' : 'Value', font: { size: 11 } },
         automargin: true,
         type: logY && !usingNorm ? 'log' : 'linear',
         range: usingNorm ? [-0.05, 1.05] : undefined,
+        tickfont:  usingSplit ? { color: COLORS[0], size: 9 } : undefined,
+        tickcolor: usingSplit ? COLORS[0] : undefined,
+        linecolor: usingSplit ? COLORS[0] : undefined,
+        showline:  usingSplit ? true : undefined,
       },
-      ...(usingSplit ? buildSplitYAxes(plotData.length, COLORS) : {}),
+      ...splitInfo.axes,
+      showlegend: !usingSplit,
       legend: { orientation: 'h', y: -0.18, font: { size: 10 } },
       hovermode: 'x unified',
       hoverlabel: { namelength: -1 },
