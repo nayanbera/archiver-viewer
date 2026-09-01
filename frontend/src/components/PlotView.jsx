@@ -199,7 +199,10 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [logY,      setLogY]      = useState(false);
   const [normMode,  setNormMode]  = useState(false);  // normalize each trace to [0,1]
   const [splitY,    setSplitY]    = useState(false);  // independent Y-axis per PV
-  const [fontSize,  setFontSize]  = useState(11);     // global plot font size
+  const [fontSize,  setFontSize]  = useState(() => {
+    const v = parseInt(localStorage.getItem('av-font-size'), 10);
+    return v >= 8 && v <= 22 ? v : 11;
+  });
   const [ptCount,   setPtCount]   = useState(null);
   const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
   const [liveMode,  setLiveMode]  = useState(false);
@@ -388,6 +391,11 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       Plotly.react(divRef.current, traces, layout, cfg);
     }
   }, [plotData, logY, normMode, splitY, fontSize]); // reruns when data or display mode changes
+
+  // Persist font size across page loads.
+  useEffect(() => {
+    localStorage.setItem('av-font-size', fontSize);
+  }, [fontSize]);
 
 
   // ── annotation-only update — preserves zoom ────────────────────────────
