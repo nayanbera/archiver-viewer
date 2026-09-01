@@ -22,15 +22,15 @@ const COLORS = [
 // Each extra axis is placed at an explicit paper-coordinate position on the right
 // so tick labels from different axes never overlap.
 // Returns { axes, xEnd, marginR, marginB }.
-function buildSplitYAxes(pvNames, colors) {
+function buildSplitYAxes(pvNames, colors, fontSize) {
   const n = pvNames.length;
   if (n <= 1) return { axes: {}, xEnd: undefined, marginR: 12, marginB: 52 };
 
-  // 0.07 paper-units per extra right axis; first axis sits at xEnd.
-  const STEP     = 0.07;
+  // Paper-unit step per extra right axis; scales with font so tick labels still fit.
+  const STEP     = Math.max(0.06, 0.04 + fontSize * 0.003);
   const numExtra = n - 1;
   const xEnd     = Math.max(0.35, 1.0 - numExtra * STEP);
-  const marginR  = 15 + numExtra * 68;   // pixels — room for tick labels + axis line
+  const marginR  = 15 + numExtra * (50 + fontSize * 2);  // pixels
 
   // Short label: last ':'-delimited segment of the PV name.
   const short = pv => pv.split(':').pop();
@@ -40,7 +40,7 @@ function buildSplitYAxes(pvNames, colors) {
     const pos   = xEnd + (i - 1) * STEP;
     const color = colors[i % colors.length];
     axes[`yaxis${i + 1}`] = {
-      title: { text: short(pvNames[i]), font: { size: 9, color } },
+      title: { text: short(pvNames[i]), font: { size: fontSize, color } },
       overlaying: 'y',
       side: 'right',
       anchor: 'free',
@@ -48,7 +48,7 @@ function buildSplitYAxes(pvNames, colors) {
       showgrid: false,
       zeroline: false,
       showline: true,
-      tickfont:  { color, size: 9 },
+      tickfont:  { color, size: fontSize },
       tickcolor: color,
       linecolor: color,
     };
@@ -65,12 +65,13 @@ function buildShapes(annotations) {
   }));
 }
 
-function buildAnnLabels(annotations) {
+function buildAnnLabels(annotations, fontSize = 11) {
+  const sz = Math.max(7, fontSize - 2);
   return (annotations || []).map(ann => ({
     x: ann.timestamp, y: 1.01, yref: 'paper',
     text: ann.note.length > 18 ? ann.note.slice(0, 18) + '…' : ann.note,
     showarrow: false, xanchor: 'left',
-    font: { size: 9, color: 'rgb(185,28,28)' },
+    font: { size: sz, color: 'rgb(185,28,28)' },
     bgcolor: 'rgba(255,255,255,0.85)', borderpad: 2,
   }));
 }
@@ -198,6 +199,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [logY,      setLogY]      = useState(false);
   const [normMode,  setNormMode]  = useState(false);  // normalize each trace to [0,1]
   const [splitY,    setSplitY]    = useState(false);  // independent Y-axis per PV
+  const [fontSize,  setFontSize]  = useState(11);     // global plot font size
   const [ptCount,   setPtCount]   = useState(null);
   const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
   const [liveMode,  setLiveMode]  = useState(false);
@@ -287,7 +289,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const usingNorm  = normMode;
 
     const splitInfo  = usingSplit
-      ? buildSplitYAxes(plotData.map(d => d.pv), COLORS)
+      ? buildSplitYAxes(plotData.map(d => d.pv), COLORS, fontSize)
       : { axes: {}, xEnd: undefined, marginR: 12, marginB: 52 };
 
     const traces = plotData.map((d, i) => {
@@ -313,34 +315,36 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     const firstShort = plotData[0]?.pv.split(':').pop() ?? 'Value';
 
     const layout = {
+      font: { size: fontSize },   // global default — cascades to all text not explicitly overridden
       margin: { t: 24, r: splitInfo.marginR, b: splitInfo.marginB, l: 64 },
       xaxis: {
         type: 'date',
         range: cap ? [cap.from.toISOString(), cap.to.toISOString()] : undefined,
         ...(splitInfo.xEnd !== undefined ? { domain: [0, splitInfo.xEnd] } : {}),
-        title: { text: 'Time (UTC)', font: { size: 11 } },
+        title: { text: 'Time (UTC)', font: { size: fontSize } },
+        tickfont: { size: fontSize },
       },
       yaxis: {
         title: usingSplit
-          ? { text: firstShort, font: { size: 9, color: COLORS[0] } }
-          : { text: usingNorm ? 'Normalized [0 – 1]' : 'Value', font: { size: 11 } },
+          ? { text: firstShort, font: { size: fontSize, color: COLORS[0] } }
+          : { text: usingNorm ? 'Normalized [0 – 1]' : 'Value', font: { size: fontSize } },
         automargin: true,
         type: logY && !usingNorm ? 'log' : 'linear',
         range: usingNorm ? [-0.05, 1.05] : undefined,
-        tickfont:  usingSplit ? { color: COLORS[0], size: 9 } : undefined,
+        tickfont:  usingSplit ? { color: COLORS[0], size: fontSize } : { size: fontSize },
         tickcolor: usingSplit ? COLORS[0] : undefined,
         linecolor: usingSplit ? COLORS[0] : undefined,
         showline:  usingSplit ? true : undefined,
       },
       ...splitInfo.axes,
       showlegend: !usingSplit,
-      legend: { orientation: 'h', y: -0.18, font: { size: 10 } },
+      legend: { orientation: 'h', y: -0.18, font: { size: fontSize } },
       hovermode: 'x unified',
-      hoverlabel: { namelength: -1 },
+      hoverlabel: { namelength: -1, font: { size: fontSize } },
       plot_bgcolor: '#f9fafb',
       paper_bgcolor: '#ffffff',
       shapes: buildShapes(annotations),
-      annotations: buildAnnLabels(annotations),
+      annotations: buildAnnLabels(annotations, fontSize),
     };
 
     const cfg = {
@@ -383,7 +387,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
     }
-  }, [plotData, logY, normMode, splitY]); // reruns when data or display mode changes
+  }, [plotData, logY, normMode, splitY, fontSize]); // reruns when data or display mode changes
 
 
   // ── annotation-only update — preserves zoom ────────────────────────────
@@ -391,9 +395,9 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     if (!readyRef.current || !divRef.current) return;
     Plotly.relayout(divRef.current, {
       shapes: buildShapes(annotations),
-      annotations: buildAnnLabels(annotations),
+      annotations: buildAnnLabels(annotations, fontSize),
     });
-  }, [annotations]);
+  }, [annotations, fontSize]);
 
   // ── cleanup ────────────────────────────────────────────────────────────
   useEffect(() => () => {
@@ -555,6 +559,23 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
           }`}>
           Split Y
         </button>
+        {/* Font size control */}
+        <div className="flex items-center rounded border border-gray-200 overflow-hidden shrink-0"
+             title="Plot font size">
+          <button
+            onClick={() => setFontSize(s => Math.max(8, s - 1))}
+            className="px-1.5 py-1 text-[11px] text-gray-500 bg-gray-50 hover:bg-gray-100 leading-none select-none">
+            A−
+          </button>
+          <span className="px-1.5 text-[11px] font-mono text-gray-600 bg-white select-none border-x border-gray-200">
+            {fontSize}
+          </span>
+          <button
+            onClick={() => setFontSize(s => Math.min(22, s + 1))}
+            className="px-1.5 py-1 text-[11px] text-gray-500 bg-gray-50 hover:bg-gray-100 leading-none select-none">
+            A+
+          </button>
+        </div>
         <button
           onClick={() => setRawMode(v => !v)}
           title={rawMode
