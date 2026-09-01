@@ -18,6 +18,26 @@ const COLORS = [
   '#0891b2','#be185d','#ca8a04','#166534','#1e40af',
 ];
 
+// Build extra Y-axis layout entries for Split-Y mode.
+// All extra axes go on the right; autoshift keeps them from overlapping.
+function buildSplitYAxes(n, colors) {
+  const axes = {};
+  for (let i = 1; i < n; i++) {
+    axes[`yaxis${i + 1}`] = {
+      overlaying: 'y',
+      side: 'right',
+      autoshift: true,  // Plotly 2.15+ — auto-offset so axes don't overlap
+      showgrid: false,
+      zeroline: false,
+      showline: true,
+      tickfont: { color: colors[i % colors.length], size: 9 },
+      tickcolor: colors[i % colors.length],
+      linecolor: colors[i % colors.length],
+    };
+  }
+  return axes;
+}
+
 function buildShapes(annotations) {
   return (annotations || []).map(ann => ({
     type: 'line',
@@ -158,6 +178,8 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [annTs,     setAnnTs]     = useState('');
   const [rawMode,   setRawMode]   = useState(false);
   const [logY,      setLogY]      = useState(false);
+  const [normMode,  setNormMode]  = useState(false);  // normalize each trace to [0,1]
+  const [splitY,    setSplitY]    = useState(false);  // independent Y-axis per PV
   const [ptCount,   setPtCount]   = useState(null);
   const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
   const [liveMode,  setLiveMode]  = useState(false);
@@ -234,20 +256,52 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     if (!divRef.current || !plotData.length) return;
     const cap = capturedRef.current;
 
-    const traces = plotData.map((d, i) => ({
-      x: d.timestamps, y: d.values,
-      name: d.pv, type: 'scatter', mode: 'lines',
-      line: { color: COLORS[i % COLORS.length], width: 1.5, shape: 'hv' },
-    }));
+    // Normalize each trace to [0, 1] over its own plotted range.
+    const normalize = vals => {
+      const finite = vals.filter(v => v != null && isFinite(v));
+      if (!finite.length) return vals;
+      const mn = Math.min(...finite), mx = Math.max(...finite);
+      const rng = mx - mn || 1;
+      return vals.map(v => (v == null || !isFinite(v)) ? null : (v - mn) / rng);
+    };
+
+    const usingSplit = splitY && !normMode && plotData.length > 1;
+    const usingNorm  = normMode;
+
+    const traces = plotData.map((d, i) => {
+      const yVals = usingNorm ? normalize(d.values) : d.values;
+      return {
+        x: d.timestamps,
+        y: yVals,
+        name: d.pv,
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: COLORS[i % COLORS.length], width: 1.5, shape: 'hv' },
+        ...(usingSplit && i > 0 ? { yaxis: `y${i + 1}` } : {}),
+        // In norm mode show actual value in hover; normalised value is secondary.
+        ...(usingNorm ? {
+          customdata: d.values,
+          hovertemplate: `${d.pv}: %{customdata:.6g}<extra></extra>`,
+        } : {}),
+      };
+    });
+
+    const extraAxes = usingSplit ? plotData.length - 1 : 0;
 
     const layout = {
-      margin: { t: 24, r: 12, b: 52, l: 64 },
+      margin: { t: 24, r: 12 + extraAxes * 55, b: 52, l: 64 },
       xaxis: {
         type: 'date',
         range: cap ? [cap.from.toISOString(), cap.to.toISOString()] : undefined,
         title: { text: 'Time (UTC)', font: { size: 11 } },
       },
-      yaxis: { title: { text: 'Value', font: { size: 11 } }, automargin: true, type: logY ? 'log' : 'linear' },
+      yaxis: {
+        title: { text: usingNorm ? 'Normalized [0 – 1]' : 'Value', font: { size: 11 } },
+        automargin: true,
+        type: logY && !usingNorm ? 'log' : 'linear',
+        range: usingNorm ? [-0.05, 1.05] : undefined,
+      },
+      ...(usingSplit ? buildSplitYAxes(plotData.length, COLORS) : {}),
       legend: { orientation: 'h', y: -0.18, font: { size: 10 } },
       hovermode: 'x unified',
       hoverlabel: { namelength: -1 },
@@ -297,7 +351,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
     }
-  }, [plotData, logY]); // reruns when data changes or log/linear is toggled
+  }, [plotData, logY, normMode, splitY]); // reruns when data or display mode changes
 
 
   // ── annotation-only update — preserves zoom ────────────────────────────
@@ -434,13 +488,40 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
         </button>
         <button
           onClick={() => setLogY(v => !v)}
-          title={logY ? 'Y-axis: log scale — click for linear' : 'Y-axis: linear — click for log scale'}
-          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
+          disabled={normMode}
+          title={normMode ? 'Log scale unavailable in Normalize mode'
+            : logY ? 'Y-axis: log scale — click for linear' : 'Y-axis: linear — click for log scale'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium disabled:opacity-30 ${
             logY
               ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
               : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
           }`}>
           {logY ? 'Log Y' : 'Lin Y'}
+        </button>
+        <button
+          onClick={() => { setNormMode(v => !v); setSplitY(false); }}
+          title={normMode
+            ? 'Normalize mode — each trace scaled to [0,1]. Click to show absolute values.'
+            : 'Normalize all traces to [0,1] so very different-scale PVs are visible together. Hover shows actual value.'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium ${
+            normMode
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          Norm
+        </button>
+        <button
+          onClick={() => { setSplitY(v => !v); setNormMode(false); }}
+          disabled={plotData.length < 2}
+          title={splitY
+            ? 'Split Y — each PV on its own axis. Click for shared axis.'
+            : 'Give each PV an independent Y-axis (right side, colour-coded)'}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors font-medium disabled:opacity-30 ${
+            splitY
+              ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+          }`}>
+          Split Y
         </button>
         <button
           onClick={() => setRawMode(v => !v)}
