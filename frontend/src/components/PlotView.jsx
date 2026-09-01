@@ -250,6 +250,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       yaxis: { title: { text: 'Value', font: { size: 11 } }, automargin: true, type: logY ? 'log' : 'linear' },
       legend: { orientation: 'h', y: -0.18, font: { size: 10 } },
       hovermode: 'x unified',
+      hoverlabel: { namelength: -1 },
       plot_bgcolor: '#f9fafb',
       paper_bgcolor: '#ffffff',
       shapes: buildShapes(annotations),
