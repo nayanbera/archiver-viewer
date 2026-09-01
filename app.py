@@ -260,24 +260,9 @@ async def proxy_archiver(path: str, request: Request):
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-def find_free_port(start: int, retries: int = 20) -> int:
-    import socket
-    for port in range(start, start + retries):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("", port))
-                return port
-            except OSError:
-                continue
-    raise RuntimeError(f"No free port found in range {start}–{start + retries - 1}")
-
-
 if __name__ == "__main__":
     import uvicorn
-    requested = int(os.getenv("PORT", "8080"))
-    port = find_free_port(requested)
-    if port != requested:
-        log.warning("Port %d is in use — using port %d instead", requested, port)
+    port = int(os.getenv("PORT", "8080"))
     log.info("=" * 50)
     log.info("  Archiver Viewer running at http://localhost:%d", port)
     log.info("=" * 50)
