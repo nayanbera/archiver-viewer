@@ -56,19 +56,73 @@ function buildSplitYAxes(pvNames, colors, fontSize) {
   return { axes, xEnd, marginR, marginB: 20 };
 }
 
-function buildShapes(annotations) {
+// ── timezone helpers ───────────────────────────────────────────────────────
+
+// Convert a UTC ISO timestamp to a "fake-UTC" string that represents the wall
+// clock time in tzName.  Plotly treats all date strings as UTC, so passing the
+// local wall-clock as if it were UTC makes the axis show correct local time.
+// Uses the sv-SE locale because it reliably gives "YYYY-MM-DD HH:MM:SS".
+function toTZString(isoStr, tzName) {
+  if (!tzName || tzName === 'UTC') return isoStr;
+  const d = new Date(isoStr);
+  const s = d.toLocaleString('sv-SE', { timeZone: tzName }); // "2026-09-01 14:30:00"
+  return s.replace(' ', 'T');
+}
+
+// Inverse: a "fake-UTC" range string from Plotly's relayout event → real UTC Date.
+// We know the string represents local wall-clock time in tzName but Plotly stripped
+// the offset, so we reverse the shift iteratively.
+function fromTZString(rangeStr, tzName) {
+  if (!tzName || tzName === 'UTC') return new Date(rangeStr);
+  const apparent = new Date(rangeStr.replace(' ', 'T') + 'Z');
+  // Approximate offset at this moment, then refine once.
+  for (let i = 0; i < 2; i++) {
+    const shifted = new Date(toTZString(apparent.toISOString(), tzName) + 'Z');
+    const offset  = shifted.getTime() - apparent.getTime();
+    apparent.setTime(apparent.getTime() - offset);
+  }
+  return apparent;
+}
+
+// Short abbreviation for axis label, e.g. "CDT", "CET", "JST".
+function tzAbbr(tzName) {
+  if (!tzName || tzName === 'UTC') return 'UTC';
+  return (
+    new Intl.DateTimeFormat('en', { timeZone: tzName, timeZoneName: 'short' })
+      .formatToParts(new Date())
+      .find(p => p.type === 'timeZoneName')?.value || tzName
+  );
+}
+
+// ── available timezones ────────────────────────────────────────────────────
+const TIMEZONES = [
+  { value: 'UTC',                  label: 'UTC' },
+  { value: 'America/New_York',     label: 'ET — New York' },
+  { value: 'America/Chicago',      label: 'CT — Chicago (APS)' },
+  { value: 'America/Denver',       label: 'MT — Denver' },
+  { value: 'America/Los_Angeles',  label: 'PT — Los Angeles' },
+  { value: 'Europe/London',        label: 'London' },
+  { value: 'Europe/Paris',         label: 'CET — Paris' },
+  { value: 'Europe/Berlin',        label: 'CET — Berlin' },
+  { value: 'Asia/Kolkata',         label: 'IST — India' },
+  { value: 'Asia/Shanghai',        label: 'CST — China' },
+  { value: 'Asia/Tokyo',           label: 'JST — Japan' },
+];
+
+function buildShapes(annotations, tzName) {
   return (annotations || []).map(ann => ({
     type: 'line',
-    x0: ann.timestamp, x1: ann.timestamp,
+    x0: toTZString(ann.timestamp, tzName),
+    x1: toTZString(ann.timestamp, tzName),
     y0: 0, y1: 1, yref: 'paper',
     line: { color: 'rgba(220,38,38,0.55)', width: 1.5, dash: 'dot' },
   }));
 }
 
-function buildAnnLabels(annotations, fontSize = 11) {
+function buildAnnLabels(annotations, fontSize = 11, tzName = 'UTC') {
   const sz = Math.max(7, fontSize - 2);
   return (annotations || []).map(ann => ({
-    x: ann.timestamp, y: 1.01, yref: 'paper',
+    x: toTZString(ann.timestamp, tzName), y: 1.01, yref: 'paper',
     text: ann.note.length > 18 ? ann.note.slice(0, 18) + '…' : ann.note,
     showarrow: false, xanchor: 'left',
     font: { size: sz, color: 'rgb(185,28,28)' },
@@ -206,6 +260,10 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   const [ptCount,   setPtCount]   = useState(null);
   const [viewTab,   setViewTab]   = useState('chart'); // 'chart' | 'table'
   const [liveMode,  setLiveMode]  = useState(false);
+  const [timezone,  setTimezone]  = useState(() => localStorage.getItem('av-timezone') || 'UTC');
+  const tzRef = useRef(timezone);
+  useEffect(() => { tzRef.current = timezone; }, [timezone]);
+  useEffect(() => { localStorage.setItem('av-timezone', timezone); }, [timezone]);
 
   // ── Merge plotData into wide-format rows for the table view ───────────
   const tableData = useMemo(() => {
@@ -304,7 +362,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       const yVals = usingNorm ? normalize(d.values) : d.values;
       const name  = displayName(d.pv);
       return {
-        x: d.timestamps,
+        x: d.timestamps.map(ts => toTZString(ts, timezone)),
         y: yVals,
         name,
         type: 'scatter',
@@ -327,9 +385,11 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       margin: { t: 24, r: splitInfo.marginR, b: splitInfo.marginB, l: 64 },
       xaxis: {
         type: 'date',
-        range: cap ? [cap.from.toISOString(), cap.to.toISOString()] : undefined,
+        range: cap
+          ? [toTZString(cap.from.toISOString(), timezone), toTZString(cap.to.toISOString(), timezone)]
+          : undefined,
         ...(splitInfo.xEnd !== undefined ? { domain: [0, splitInfo.xEnd] } : {}),
-        title: { text: 'Time (UTC)', font: { size: fontSize } },
+        title: { text: `Time (${tzAbbr(timezone)})`, font: { size: fontSize } },
         tickfont: { size: fontSize },
       },
       yaxis: {
@@ -351,8 +411,8 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
       hoverlabel: { namelength: -1, font: { size: fontSize } },
       plot_bgcolor: '#f9fafb',
       paper_bgcolor: '#ffffff',
-      shapes: buildShapes(annotations),
-      annotations: buildAnnLabels(annotations, fontSize),
+      shapes: buildShapes(annotations, timezone),
+      annotations: buildAnnLabels(annotations, fontSize, timezone),
     };
 
     const cfg = {
@@ -365,12 +425,12 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     if (!readyRef.current) {
       Plotly.newPlot(divRef.current, traces, layout, cfg);
       readyRef.current = true;
-      // sync zoom/pan back to TimeBar
+      // sync zoom/pan back to TimeBar — un-shift fake-UTC back to real UTC
       divRef.current.on('plotly_relayout', ed => {
         if (ed['xaxis.range[0]'] && ed['xaxis.range[1]']) {
           onTimeRangeChange?.({
-            from: new Date(ed['xaxis.range[0]']),
-            to:   new Date(ed['xaxis.range[1]']),
+            from: fromTZString(ed['xaxis.range[0]'], tzRef.current),
+            to:   fromTZString(ed['xaxis.range[1]'], tzRef.current),
           });
         }
       });
@@ -395,7 +455,7 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
     } else {
       Plotly.react(divRef.current, traces, layout, cfg);
     }
-  }, [plotData, logY, normMode, splitY, fontSize, pvAliases]); // reruns when data or display mode changes
+  }, [plotData, logY, normMode, splitY, fontSize, pvAliases, timezone]); // reruns when data or display mode changes
 
   // Persist font size across page loads.
   useEffect(() => {
@@ -407,10 +467,10 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
   useEffect(() => {
     if (!readyRef.current || !divRef.current) return;
     Plotly.relayout(divRef.current, {
-      shapes: buildShapes(annotations),
-      annotations: buildAnnLabels(annotations, fontSize),
+      shapes: buildShapes(annotations, timezone),
+      annotations: buildAnnLabels(annotations, fontSize, timezone),
     });
-  }, [annotations, fontSize]);
+  }, [annotations, fontSize, timezone]);
 
   // ── cleanup ────────────────────────────────────────────────────────────
   useEffect(() => () => {
@@ -589,6 +649,16 @@ export default function PlotView({ pvs, from, to, plotKey, annotations, onAddAnn
             A+
           </button>
         </div>
+        {/* Timezone selector */}
+        <select
+          value={timezone}
+          onChange={e => setTimezone(e.target.value)}
+          title="X-axis timezone"
+          className="text-xs px-1.5 py-1 rounded border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 cursor-pointer shrink-0 max-w-[130px]">
+          {TIMEZONES.map(tz => (
+            <option key={tz.value} value={tz.value}>{tz.label}</option>
+          ))}
+        </select>
         <button
           onClick={() => setRawMode(v => !v)}
           title={rawMode
