@@ -21,6 +21,30 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="Archiver Viewer")
 
+
+def _all_configured_pvfields() -> list[str]:
+    """Return every PV+field string from the snapshot station config."""
+    from snapshot_ca import DEFAULT_MOTOR_FIELDS
+    data = load_snapshots()
+    pvfs = []
+    for st_cfg in data.get("stations", {}).values():
+        for entry in st_cfg.get("pvs", []):
+            pv = entry.get("pv", "")
+            fields = entry.get("fields") or DEFAULT_MOTOR_FIELDS
+            for f in fields:
+                pvfs.append(pv + f)
+    return pvfs
+
+
+@app.on_event("startup")
+async def _startup_ca_subscriptions():
+    """Subscribe to all configured snapshot PVs at service start."""
+    import threading
+    from snapshot_ca import update_subscriptions
+    pvfs = _all_configured_pvfields()
+    if pvfs:
+        threading.Thread(target=update_subscriptions, args=(pvfs,), daemon=True).start()
+
 ARCHIVER_MGMT_URL      = os.getenv("ARCHIVER_MGMT_URL",      "http://164.54.169.92:17665")
 ARCHIVER_RETRIEVAL_URL = os.getenv("ARCHIVER_RETRIEVAL_URL",  "http://164.54.169.92:17668")
 CONFIG_PATH            = Path(os.getenv("CONFIG_PATH", "config/overrides.json"))
@@ -344,23 +368,27 @@ async def get_snapshot_config():
 
 @app.post("/api/snapshots/config")
 async def save_snapshot_config(request: Request):
-    """Replace the per-station PV configuration."""
+    """Replace the per-station PV configuration and refresh CA subscriptions."""
+    import threading
+    from snapshot_ca import update_subscriptions
     body = await request.json()
     data = load_snapshots()
     data["stations"] = body
     save_snapshots(data)
+    pvfs = _all_configured_pvfields()
+    threading.Thread(target=update_subscriptions, args=(pvfs,), daemon=True).start()
     log.info("Snapshot config saved")
     return {"status": "ok"}
 
 
 @app.get("/api/snapshots/live")
 async def read_live_values(station: str = ""):
-    """Read live CA values for all PVs in the given station (or all stations)."""
-    from snapshot_ca import read_pvs, DEFAULT_MOTOR_FIELDS
+    """Return cached live CA values — instantaneous, no network round-trips."""
+    from snapshot_ca import get_cached_values, DEFAULT_MOTOR_FIELDS
     data = load_snapshots()
     stations = data.get("stations", {})
 
-    pv_field_pairs: list[str] = []
+    pvfs: list[str] = []
     for st_name, st_cfg in stations.items():
         if station and st_name != station:
             continue
@@ -368,13 +396,9 @@ async def read_live_values(station: str = ""):
             pv = entry["pv"]
             fields = entry.get("fields") or DEFAULT_MOTOR_FIELDS
             for f in fields:
-                pv_field_pairs.append(pv + f)
+                pvfs.append(pv + f)
 
-    if not pv_field_pairs:
-        return {}
-
-    values = await read_pvs(pv_field_pairs)
-    return values
+    return get_cached_values(pvfs)
 
 
 @app.get("/api/snapshots")
@@ -389,8 +413,8 @@ async def list_snapshots(station: str = ""):
 
 @app.post("/api/snapshots")
 async def take_snapshot(request: Request):
-    """Take a new snapshot: read live CA values and persist."""
-    from snapshot_ca import read_pvs, DEFAULT_MOTOR_FIELDS
+    """Take a new snapshot from the live CA cache."""
+    from snapshot_ca import get_cached_values, DEFAULT_MOTOR_FIELDS
     body = await request.json()
     name    = (body.get("name") or "").strip()
     station = (body.get("station") or "").strip()
@@ -409,7 +433,7 @@ async def take_snapshot(request: Request):
         for f in fields:
             pv_field_pairs.append(pv + f)
 
-    values = await read_pvs(pv_field_pairs)
+    values = get_cached_values(pv_field_pairs)
 
     snap = {
         "id":         str(uuid.uuid4())[:8],

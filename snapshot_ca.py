@@ -1,14 +1,17 @@
 """EPICS CA helpers for the snapshot feature.
 
-All reads/writes run in a single dedicated thread to avoid libca threading
-issues — pyepics is not safe to call from multiple threads simultaneously.
+Uses persistent PV subscriptions (camonitor style) so live-value reads are
+instant — the cache is updated by CA callbacks in the background rather than
+by sequential caget calls per request.
+
+Write (restore) still uses caput via a single dedicated thread.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger(__name__)
@@ -33,37 +36,80 @@ DEFAULT_MOTOR_FIELDS = [
     ".DESC",
 ]
 
-# Single worker thread — all CA calls run here sequentially to keep libca happy.
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ca-snap")
+# ── Live value cache ──────────────────────────────────────────────────────────
+
+_cache: dict[str, float | str | None] = {}
+_pv_objects: dict[str, object] = {}   # pvname → epics.PV
+_cache_lock = threading.Lock()
+
+# Single thread for caput (writes still need sequential CA access)
+_write_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ca-write")
 
 
-_READ_TOTAL_LIMIT = 15.0  # hard cap on the whole batch in seconds
+def _make_callback(pvname: str):
+    def _cb(value=None, **_kw):
+        with _cache_lock:
+            _cache[pvname] = value
+    return _cb
 
 
-def _read_all(pvnames: list[str]) -> dict[str, float | str | None]:
-    """Read all PVs sequentially in the CA thread, with a total wall-clock cap."""
+def _subscribe_one(pvname: str) -> None:
+    """Connect and subscribe to one PV in the CA background thread."""
     try:
         import epics
-    except ImportError:
-        return {pv: None for pv in pvnames}
-    result: dict[str, float | str | None] = {}
-    deadline = time.monotonic() + _READ_TOTAL_LIMIT
-    for pv in pvnames:
-        if time.monotonic() > deadline:
-            log.warning("CA read batch timed out after %.0fs — %d PVs skipped",
-                        _READ_TOTAL_LIMIT, len(pvnames) - len(result))
-            break
-        try:
-            val = epics.caget(pv, timeout=0.5, use_monitor=False)
-            result[pv] = val
-        except Exception as exc:
-            log.debug("caget %s failed: %s", pv, exc)
-            result[pv] = None
-    return result
+        if pvname in _pv_objects:
+            return
+        pv = epics.PV(pvname, callback=_make_callback(pvname), auto_monitor=True)
+        _pv_objects[pvname] = pv
+    except Exception as exc:
+        log.warning("subscribe %s failed: %s", pvname, exc)
 
+
+def _unsubscribe_one(pvname: str) -> None:
+    pv = _pv_objects.pop(pvname, None)
+    if pv is not None:
+        try:
+            pv.disconnect()
+        except Exception:
+            pass
+    with _cache_lock:
+        _cache.pop(pvname, None)
+
+
+def update_subscriptions(pvnames: list[str]) -> None:
+    """
+    Sync subscriptions to match pvnames.
+    Called at startup and whenever the PV config changes.
+    Runs in the calling thread — pyepics PV() handles its own CA thread.
+    """
+    try:
+        import epics  # noqa: F401 — ensure libca is loaded before any PV()
+    except ImportError:
+        log.warning("pyepics not available — live CA monitoring disabled")
+        return
+
+    wanted = set(pvnames)
+    current = set(_pv_objects.keys())
+
+    for pv in current - wanted:
+        _unsubscribe_one(pv)
+
+    for pv in wanted - current:
+        _subscribe_one(pv)
+
+    log.info("CA subscriptions: %d active", len(_pv_objects))
+
+
+def get_cached_values(pvnames: list[str]) -> dict[str, float | str | None]:
+    """Return latest cached values for the given PVs — no network I/O."""
+    with _cache_lock:
+        return {pv: _cache.get(pv) for pv in pvnames}
+
+
+# ── Write (restore) ───────────────────────────────────────────────────────────
 
 def _write_all(pv_value_map: dict[str, float | str]) -> dict[str, bool]:
-    """Write PVs sequentially in the CA thread, skipping read-only fields."""
+    """Write PVs sequentially in the dedicated CA thread."""
     try:
         import epics
     except ImportError:
@@ -81,13 +127,18 @@ def _write_all(pv_value_map: dict[str, float | str]) -> dict[str, bool]:
     return out
 
 
-async def read_pvs(pv_field_pairs: list[str]) -> dict[str, float | str | None]:
-    """Read a list of full PV+field strings in the CA thread."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _read_all, list(pv_field_pairs))
-
-
 async def write_pvs(pv_value_map: dict[str, float | str]) -> dict[str, bool]:
-    """Write {pvfield: value} pairs in the CA thread."""
+    """Write {pvfield: value} pairs via the dedicated CA write thread."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _write_all, dict(pv_value_map))
+    return await loop.run_in_executor(_write_executor, _write_all, dict(pv_value_map))
+
+
+# ── Snapshot read (uses cache, falls back to nothing for unknown PVs) ─────────
+
+async def read_pvs(pv_field_pairs: list[str]) -> dict[str, float | str | None]:
+    """Return cached values for the requested PVs.
+
+    If a PV isn't subscribed yet (e.g. newly added), its value will be None
+    until the CA callback fires — typically within a second of subscription.
+    """
+    return get_cached_values(pv_field_pairs)
