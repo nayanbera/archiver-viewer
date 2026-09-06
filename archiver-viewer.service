@@ -14,6 +14,8 @@ ExecStart=/home/chem_epics/anaconda3/envs/archiver-viewer/bin/python app.py
 
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
 
 # Environment — edit archiver IPs/ports if they differ
 Environment="PORT=8091"

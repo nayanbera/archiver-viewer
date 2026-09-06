@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger(__name__)
@@ -36,14 +37,22 @@ DEFAULT_MOTOR_FIELDS = [
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ca-snap")
 
 
+_READ_TOTAL_LIMIT = 15.0  # hard cap on the whole batch in seconds
+
+
 def _read_all(pvnames: list[str]) -> dict[str, float | str | None]:
-    """Read all PVs sequentially in the CA thread."""
+    """Read all PVs sequentially in the CA thread, with a total wall-clock cap."""
     try:
         import epics
     except ImportError:
         return {pv: None for pv in pvnames}
     result: dict[str, float | str | None] = {}
+    deadline = time.monotonic() + _READ_TOTAL_LIMIT
     for pv in pvnames:
+        if time.monotonic() > deadline:
+            log.warning("CA read batch timed out after %.0fs — %d PVs skipped",
+                        _READ_TOTAL_LIMIT, len(pvnames) - len(result))
+            break
         try:
             val = epics.caget(pv, timeout=0.5, use_monitor=False)
             result[pv] = val
