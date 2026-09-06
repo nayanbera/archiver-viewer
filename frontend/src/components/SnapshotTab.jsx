@@ -388,8 +388,15 @@ export default function SnapshotTab({ annotationPassword }) {
 
   const deleteSnapshot = async (id) => {
     if (!confirm('Delete this snapshot?')) return;
-    await fetch(`/api/snapshots/${id}`, { method: 'DELETE' });
-    setSnapshots(prev => prev.filter(s => s.id !== id));
+    const r = await fetch(`/api/snapshots/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      alert(`Delete failed: ${r.status} ${r.statusText}`);
+      return;
+    }
+    // Re-fetch from server to confirm deletion persisted
+    fetch(`/api/snapshots?station=${encodeURIComponent(station)}`)
+      .then(r2 => r2.json())
+      .then(d => setSnapshots(Array.isArray(d) ? d.slice().reverse() : []));
     if (activeSnap?.id === id) setActiveSnap(null);
   };
 
