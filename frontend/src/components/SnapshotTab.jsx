@@ -139,6 +139,47 @@ function StationConfigurator({ station, config, onSave }) {
   );
 }
 
+// ── Delete confirmation modal ──────────────────────────────────────────────
+
+function DeleteModal({ snapName, onConfirm, onClose, needsPassword }) {
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const submit = () => {
+    if (needsPassword && !pw.trim()) { setErr('Password required.'); return; }
+    onConfirm(pw);
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm border border-gray-200 p-5 space-y-4">
+        <h2 className="font-bold text-gray-800">Delete Snapshot</h2>
+        <p className="text-sm text-gray-600">
+          Permanently delete "<em>{snapName}</em>"? This cannot be undone.
+        </p>
+        {needsPassword && (
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Password</label>
+            <input type="password" value={pw} onChange={e => { setPw(e.target.value); setErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && submit()}
+              autoFocus placeholder="Enter password…"
+              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+            {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose}
+            className="text-sm px-4 py-1.5 text-gray-600 hover:text-gray-800 rounded hover:bg-gray-100 border border-gray-200">
+            Cancel
+          </button>
+          <button onClick={submit}
+            className="text-sm font-semibold px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Restore password modal ─────────────────────────────────────────────────
 
 function RestoreModal({ snapName, selected, onConfirm, onClose, needsPassword }) {
@@ -304,6 +345,7 @@ export default function SnapshotTab({ annotationPassword }) {
   const [msg,          setMsg]          = useState('');
   const [newStation,   setNewStation]   = useState('');
   const [caStatus,     setCaStatus]     = useState(null); // null | {ok, version?, error?, hint?}
+  const [deleteTarget, setDeleteTarget] = useState(null); // snap to delete, or null
   const liveRef = useRef(null);
 
   // Load config + check CA status on mount
@@ -393,14 +435,18 @@ export default function SnapshotTab({ annotationPassword }) {
     }
   };
 
-  const deleteSnapshot = async (id) => {
-    if (!confirm('Delete this snapshot?')) return;
-    const r = await fetch(`/api/snapshots/${id}`, { method: 'DELETE' });
+  const deleteSnapshot = async (id, password) => {
+    setDeleteTarget(null);
+    const r = await fetch(`/api/snapshots/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
     if (!r.ok) {
-      alert(`Delete failed: ${r.status} ${r.statusText}`);
+      const body = await r.json().catch(() => ({}));
+      alert(`Delete failed: ${body.detail || r.statusText}`);
       return;
     }
-    // Re-fetch from server to confirm deletion persisted
     fetch(`/api/snapshots?station=${encodeURIComponent(station)}`)
       .then(r2 => r2.json())
       .then(d => setSnapshots(Array.isArray(d) ? d.slice().reverse() : []));
@@ -607,7 +653,7 @@ export default function SnapshotTab({ annotationPassword }) {
                     <div className="text-[10px] text-gray-400">
                       {Object.keys(snap.values || {}).length} PV fields
                     </div>
-                    <button onClick={e => { e.stopPropagation(); deleteSnapshot(snap.id); }}
+                    <button onClick={e => { e.stopPropagation(); setDeleteTarget(snap); }}
                       className="text-[10px] text-red-400 hover:text-red-600 mt-1">
                       Delete
                     </button>
@@ -640,5 +686,13 @@ export default function SnapshotTab({ annotationPassword }) {
         )}
       </div>
     </div>
+
+    {deleteTarget && (
+      <DeleteModal
+        snapName={deleteTarget.name}
+        needsPassword={!!annotationPassword}
+        onConfirm={pw => deleteSnapshot(deleteTarget.id, pw)}
+        onClose={() => setDeleteTarget(null)} />
+    )}
   );
 }

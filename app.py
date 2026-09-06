@@ -449,7 +449,12 @@ async def take_snapshot(request: Request):
 
 
 @app.delete("/api/snapshots/{snap_id}")
-async def delete_snapshot(snap_id: str):
+async def delete_snapshot(snap_id: str, request: Request):
+    body = await request.json()
+    cfg      = load_config()
+    required = cfg.get("annotationPassword", "")
+    if required and body.get("password", "") != required:
+        raise HTTPException(403, "Incorrect password")
     data = load_snapshots()
     before = len(data.get("snapshots", []))
     data["snapshots"] = [s for s in data.get("snapshots", []) if s["id"] != snap_id]
