@@ -307,7 +307,7 @@ async def ca_status():
                 break
         if not test_pv:
             return None, "no_pvs_configured"
-        val = epics.caget(test_pv, timeout=1.5, use_monitor=False)
+        val = epics.caget(test_pv, timeout=0.5, use_monitor=False)
         return val, test_pv
 
     try:

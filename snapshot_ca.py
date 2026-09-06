@@ -45,10 +45,10 @@ def _read_all(pvnames: list[str]) -> dict[str, float | str | None]:
     result: dict[str, float | str | None] = {}
     for pv in pvnames:
         try:
-            val = epics.caget(pv, timeout=2.0, use_monitor=False)
+            val = epics.caget(pv, timeout=0.5, use_monitor=False)
             result[pv] = val
         except Exception as exc:
-            log.warning("caget %s failed: %s", pv, exc)
+            log.debug("caget %s failed: %s", pv, exc)
             result[pv] = None
     return result
 
