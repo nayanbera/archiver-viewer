@@ -327,7 +327,7 @@ export default function App() {
       <div className="flex flex-1 min-h-0">
 
         {/* Sidebar */}
-        <aside className="w-80 flex flex-col bg-white border-r border-gray-200 shrink-0">
+        <aside className={`w-80 flex flex-col bg-white border-r border-gray-200 shrink-0 ${viewMode === 'snapshots' ? 'hidden' : ''}`}>
 
           {/* Search controls */}
           <div className="px-3 pt-2 pb-1.5 border-b border-gray-100 shrink-0 space-y-1.5">
@@ -502,14 +502,16 @@ export default function App() {
           )}
         </main>
 
-        <AnnotationPanel
-          annotations={annotations}
-          annotationPassword={config.annotationPassword || ''}
-          onClickAnnotation={clickAnnotation}
-          onDeleteAnnotation={deleteAnnotation}
-          onEditAnnotation={editAnnotation}
-          onChangePassword={changeAnnotationPassword}
-        />
+        {viewMode !== 'snapshots' && (
+          <AnnotationPanel
+            annotations={annotations}
+            annotationPassword={config.annotationPassword || ''}
+            onClickAnnotation={clickAnnotation}
+            onDeleteAnnotation={deleteAnnotation}
+            onEditAnnotation={editAnnotation}
+            onChangePassword={changeAnnotationPassword}
+          />
+        )}
       </div>
 
       <SelectionTray selPVs={selPVs} onClear={() => setSelPVs(new Set())} onPlot={handlePlot} onDownloadCsv={handleDownloadCsv} />
