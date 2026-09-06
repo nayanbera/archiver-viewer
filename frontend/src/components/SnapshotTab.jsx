@@ -45,7 +45,14 @@ function StationConfigurator({ station, config, onSave }) {
     setNewPV('');
   };
 
-  const removePV = pv => setPvs(prev => prev.filter(e => e.pv !== pv));
+  const removePV = async pv => {
+    const updated = pvs.filter(e => e.pv !== pv);
+    setPvs(updated);
+    setSaving(true); setMsg('');
+    try { await onSave(updated); setMsg('Saved.'); }
+    catch (e) { setMsg(`Error: ${e.message}`); }
+    finally { setSaving(false); }
+  };
 
   const toggleField = (pv, field) => setPvs(prev =>
     prev.map(e => e.pv !== pv ? e : {
