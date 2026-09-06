@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger(__name__)
 
-READONLY_FIELDS = {".RBV", ".DESC", ".EGU", ".RRBV", ".MRES", ".ERES", ".RRES"}
+READONLY_FIELDS = {".RBV", ".RRBV", ".RRES"}
 
 DEFAULT_MOTOR_FIELDS = [
     ".VAL",
