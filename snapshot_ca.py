@@ -5,6 +5,8 @@ they run synchronous epics calls in a thread-pool executor so FastAPI's event
 loop is never blocked.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor

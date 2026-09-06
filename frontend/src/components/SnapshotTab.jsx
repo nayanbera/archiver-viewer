@@ -284,21 +284,22 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
 // ── Main SnapshotTab ───────────────────────────────────────────────────────
 
 export default function SnapshotTab({ annotationPassword }) {
-  const [stationsCfg,  setStationsCfg]  = useState({});  // { stName: { pvs:[...] } }
+  const [stationsCfg,  setStationsCfg]  = useState({});
   const [station,      setStation]      = useState('');
   const [snapshots,    setSnapshots]    = useState([]);
   const [activeSnap,   setActiveSnap]   = useState(null);
   const [liveValues,   setLiveValues]   = useState({});
   const [liveLoading,  setLiveLoading]  = useState(false);
   const [selected,     setSelected]     = useState(new Set());
-  const [tab,          setTab]          = useState('snapshots'); // 'snapshots'|'config'
+  const [tab,          setTab]          = useState('snapshots');
   const [snapName,     setSnapName]     = useState('');
   const [taking,       setTaking]       = useState(false);
   const [msg,          setMsg]          = useState('');
   const [newStation,   setNewStation]   = useState('');
+  const [caStatus,     setCaStatus]     = useState(null); // null | {ok, version?, error?, hint?}
   const liveRef = useRef(null);
 
-  // Load config on mount
+  // Load config + check CA status on mount
   useEffect(() => {
     fetch('/api/snapshots/config')
       .then(r => r.json())
@@ -307,6 +308,10 @@ export default function SnapshotTab({ annotationPassword }) {
         const first = Object.keys(d || {})[0] || '';
         setStation(first);
       });
+    fetch('/api/snapshots/ca-status')
+      .then(r => r.json())
+      .then(setCaStatus)
+      .catch(() => setCaStatus({ ok: false, error: 'Could not reach server' }));
   }, []);
 
   // Load snapshots when station changes
@@ -477,6 +482,22 @@ export default function SnapshotTab({ annotationPassword }) {
           </div>
         )}
       </div>
+
+      {/* ── CA status banner ── */}
+      {caStatus && !caStatus.ok && (
+        <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-700 text-xs flex items-start gap-2 shrink-0">
+          <span className="shrink-0 font-bold">⚠ CA not available:</span>
+          <span>{caStatus.error}</span>
+          {caStatus.hint && (
+            <span className="ml-1 text-red-500 italic">{caStatus.hint}</span>
+          )}
+        </div>
+      )}
+      {caStatus && caStatus.ok && (
+        <div className="px-4 py-1 bg-green-50 border-b border-green-200 text-green-700 text-xs shrink-0">
+          ✓ pyepics {caStatus.version} — CA ready
+        </div>
+      )}
 
       {/* ── Body ── */}
       <div className="flex flex-1 min-h-0">

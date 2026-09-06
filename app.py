@@ -273,6 +273,17 @@ def save_snapshots(data: dict) -> None:
 # Snapshot API
 # ---------------------------------------------------------------------------
 
+@app.get("/api/snapshots/ca-status")
+async def ca_status():
+    """Check whether pyepics is importable on this server."""
+    try:
+        import epics
+        return {"ok": True, "version": getattr(epics, "__version__", "unknown")}
+    except ImportError as exc:
+        return {"ok": False, "error": str(exc),
+                "hint": "Run: pip install pyepics  in the archiver-viewer conda environment, then restart the service."}
+
+
 @app.get("/api/snapshots/config")
 async def get_snapshot_config():
     """Return the per-station PV configuration."""
