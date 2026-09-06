@@ -7,6 +7,7 @@ import GroupsModal      from './components/GroupsModal';
 import PlotView         from './components/PlotView';
 import AnnotationPanel  from './components/AnnotationPanel';
 import Checkbox         from './components/Checkbox';
+import SnapshotTab      from './components/SnapshotTab';
 
 function JsonModal({ config, onSave, onClose }) {
   const [text, setText] = useState(JSON.stringify(config, null, 2));
@@ -292,7 +293,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex rounded border border-gray-200 overflow-hidden">
-            {[['plotly','📊 Plotly'],['aa','🔗 AA Viewer']].map(([m, label]) => (
+            {[['plotly','📊 Plotly'],['aa','🔗 AA Viewer'],['snapshots','📷 Snapshots']].map(([m, label]) => (
               <button key={m} onClick={() => setViewMode(m)}
                 className={`text-xs px-2.5 py-1 transition-colors ${
                   viewMode === m ? 'bg-blue-600 text-white'
@@ -480,7 +481,9 @@ export default function App() {
 
         {/* Main plot area */}
         <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
-          {viewMode === 'plotly' ? (
+          {viewMode === 'snapshots' ? (
+            <SnapshotTab annotationPassword={config.annotationPassword || ''} />
+          ) : viewMode === 'plotly' ? (
             <PlotView pvs={plotPvs} from={tr.from} to={tr.to} plotKey={plotKey}
               annotations={annotations} onAddAnnotation={addAnnotation} onTimeRangeChange={setTr}
               pvAliases={pvAliases} />

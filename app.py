@@ -1,7 +1,10 @@
 import json
 import logging
 import os
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -238,6 +241,175 @@ async def save_config(request: Request):
     CONFIG_PATH.write_text(json.dumps(body, indent=2))
     log.info("Config saved to %s", CONFIG_PATH)
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Snapshot config + data file
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_PATH = Path(os.getenv("SNAPSHOT_PATH", "config/snapshots.json"))
+
+DEFAULT_SNAPSHOT_CONFIG: dict[str, Any] = {
+    "stations": {},   # { stationName: { pvs: [ {pv, fields: [".VAL", ...]} ] } }
+    "snapshots": [],  # [ {id, name, station, created_at, values: {pvfield: val}} ]
+}
+
+
+def load_snapshots() -> dict:
+    if SNAPSHOT_PATH.exists():
+        try:
+            return json.loads(SNAPSHOT_PATH.read_text())
+        except Exception as exc:
+            log.warning("Could not parse snapshots file: %s", exc)
+    return {k: v for k, v in DEFAULT_SNAPSHOT_CONFIG.items()}
+
+
+def save_snapshots(data: dict) -> None:
+    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SNAPSHOT_PATH.write_text(json.dumps(data, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Snapshot API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/snapshots/config")
+async def get_snapshot_config():
+    """Return the per-station PV configuration."""
+    return load_snapshots()["stations"]
+
+
+@app.post("/api/snapshots/config")
+async def save_snapshot_config(request: Request):
+    """Replace the per-station PV configuration."""
+    body = await request.json()
+    data = load_snapshots()
+    data["stations"] = body
+    save_snapshots(data)
+    log.info("Snapshot config saved")
+    return {"status": "ok"}
+
+
+@app.get("/api/snapshots/live")
+async def read_live_values(station: str = ""):
+    """Read live CA values for all PVs in the given station (or all stations)."""
+    from snapshot_ca import read_pvs, DEFAULT_MOTOR_FIELDS
+    data = load_snapshots()
+    stations = data.get("stations", {})
+
+    pv_field_pairs: list[str] = []
+    for st_name, st_cfg in stations.items():
+        if station and st_name != station:
+            continue
+        for entry in st_cfg.get("pvs", []):
+            pv = entry["pv"]
+            fields = entry.get("fields") or DEFAULT_MOTOR_FIELDS
+            for f in fields:
+                pv_field_pairs.append(pv + f)
+
+    if not pv_field_pairs:
+        return {}
+
+    values = await read_pvs(pv_field_pairs)
+    return values
+
+
+@app.get("/api/snapshots")
+async def list_snapshots(station: str = ""):
+    """List saved snapshots, optionally filtered by station."""
+    data = load_snapshots()
+    snaps = data.get("snapshots", [])
+    if station:
+        snaps = [s for s in snaps if s.get("station") == station]
+    return snaps
+
+
+@app.post("/api/snapshots")
+async def take_snapshot(request: Request):
+    """Take a new snapshot: read live CA values and persist."""
+    from snapshot_ca import read_pvs, DEFAULT_MOTOR_FIELDS
+    body = await request.json()
+    name    = (body.get("name") or "").strip()
+    station = (body.get("station") or "").strip()
+    if not name or not station:
+        raise HTTPException(400, "name and station are required")
+
+    data     = load_snapshots()
+    st_cfg   = data.get("stations", {}).get(station)
+    if not st_cfg:
+        raise HTTPException(404, f"Station '{station}' not configured")
+
+    pv_field_pairs = []
+    for entry in st_cfg.get("pvs", []):
+        pv = entry["pv"]
+        fields = entry.get("fields") or DEFAULT_MOTOR_FIELDS
+        for f in fields:
+            pv_field_pairs.append(pv + f)
+
+    values = await read_pvs(pv_field_pairs)
+
+    snap = {
+        "id":         str(uuid.uuid4())[:8],
+        "name":       name,
+        "station":    station,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "values":     values,
+    }
+    data.setdefault("snapshots", []).append(snap)
+    save_snapshots(data)
+    log.info("Snapshot saved: %s / %s (%d PVs)", station, name, len(values))
+    return snap
+
+
+@app.delete("/api/snapshots/{snap_id}")
+async def delete_snapshot(snap_id: str):
+    data = load_snapshots()
+    before = len(data.get("snapshots", []))
+    data["snapshots"] = [s for s in data.get("snapshots", []) if s["id"] != snap_id]
+    if len(data["snapshots"]) == before:
+        raise HTTPException(404, "Snapshot not found")
+    save_snapshots(data)
+    return {"status": "ok"}
+
+
+@app.post("/api/snapshots/{snap_id}/restore")
+async def restore_snapshot(snap_id: str, request: Request):
+    """Restore selected PV values.  Requires the annotation password."""
+    from snapshot_ca import write_pvs, READONLY_FIELDS
+    body = await request.json()
+
+    # Password check — reuse annotationPassword from overrides.json
+    cfg      = load_config()
+    required = cfg.get("annotationPassword", "")
+    provided = body.get("password", "")
+    if required and provided != required:
+        raise HTTPException(403, "Incorrect password")
+
+    # Find the snapshot
+    data = load_snapshots()
+    snap = next((s for s in data.get("snapshots", []) if s["id"] == snap_id), None)
+    if not snap:
+        raise HTTPException(404, "Snapshot not found")
+
+    # selected: list of pvfield keys to restore; if empty restore all writable
+    selected: list[str] | None = body.get("selected")
+    values = snap["values"]
+    if selected is not None:
+        values = {k: v for k, v in values.items() if k in selected}
+
+    # Filter out None values and read-only fields
+    to_write = {
+        k: v for k, v in values.items()
+        if v is not None and not any(k.endswith(ro) for ro in READONLY_FIELDS)
+    }
+
+    if not to_write:
+        return {"results": {}, "message": "Nothing to restore"}
+
+    results = await write_pvs(to_write)
+    success = sum(1 for v in results.values() if v)
+    log.info("Restore snapshot %s: %d/%d PVs written", snap_id, success, len(results))
+    return {"results": results, "written": success, "total": len(results)}
 
 
 @app.get("/archiver-proxy/{path:path}")
