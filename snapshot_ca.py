@@ -44,6 +44,8 @@ def _ca_get(pvname: str) -> float | str | None:
     """Synchronous single PV read via pyepics."""
     try:
         import epics
+        # Each ThreadPoolExecutor worker thread needs its own CA context.
+        epics.ca.use_initial_context()
         val = epics.caget(pvname, timeout=2.0, use_monitor=False)
         return val
     except Exception as exc:
@@ -55,6 +57,7 @@ def _ca_put(pvname: str, value) -> bool:
     """Synchronous single PV write via pyepics. Returns True on success."""
     try:
         import epics
+        epics.ca.use_initial_context()
         status = epics.caput(pvname, value, timeout=5.0, wait=True)
         return status == 1
     except Exception as exc:
