@@ -13,19 +13,24 @@ log = logging.getLogger(__name__)
 
 # Fields that are purely informational — read at snapshot time but never written
 # back during a restore.
-READONLY_FIELDS = {".RBV", ".DESC", ".EGU", ".RRBV", ".MRES", ".RRES"}
+READONLY_FIELDS = {".RBV", ".DESC", ".EGU", ".RRBV", ".MRES", ".ERES", ".RRES"}
 
 # Default set of motor-record fields to capture when the user hasn't customised
 # a PV's field list.
 DEFAULT_MOTOR_FIELDS = [
     ".VAL",   # setpoint / user position
     ".RBV",   # readback (read-only)
+    ".OFF",   # user offset
     ".LLM",   # low soft limit
     ".HLM",   # high soft limit
     ".VELO",  # slew velocity
+    ".VBAS",  # base velocity
     ".ACCL",  # acceleration time
     ".BDST",  # backlash distance
     ".BVEL",  # backlash velocity
+    ".MRES",  # motor resolution (steps/EGU) — read-only display
+    ".ERES",  # encoder resolution — read-only display
+    ".RDBD",  # retry deadband
     ".EGU",   # engineering units (read-only)
     ".DESC",  # description (read-only)
 ]

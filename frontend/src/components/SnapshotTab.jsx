@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const DEFAULT_FIELDS = ['.VAL','.RBV','.LLM','.HLM','.VELO','.ACCL','.BDST','.BVEL','.EGU','.DESC'];
-const READONLY_FIELDS = new Set(['.RBV','.DESC','.EGU','.RRBV','.MRES','.RRES']);
+const DEFAULT_FIELDS = ['.VAL','.RBV','.OFF','.LLM','.HLM','.VELO','.VBAS','.ACCL','.BDST','.BVEL','.MRES','.ERES','.RDBD','.EGU','.DESC'];
+const READONLY_FIELDS = new Set(['.RBV','.DESC','.EGU','.RRBV','.MRES','.ERES','.RRES']);
 
 function fmtDate(iso) {
   if (!iso) return '—';
