@@ -570,7 +570,9 @@ export default function SnapshotTab({ annotationPassword }) {
       {caStatus && caStatus.ok && caStatus.ca_connected === true && (
         <div className="px-4 py-1 bg-green-50 border-b border-green-200 text-green-700 text-xs shrink-0">
           ✓ pyepics {caStatus.version} — CA connected
-          {caStatus.test_pv && <span className="ml-2 font-mono opacity-60">(tested: {caStatus.test_pv} = {caStatus.test_val})</span>}
+          {caStatus.connected != null && (
+            <span className="ml-2 opacity-60">{caStatus.connected}/{caStatus.subscribed} PVs live</span>
+          )}
         </div>
       )}
       {caStatus && caStatus.ok && caStatus.ca_connected === null && (

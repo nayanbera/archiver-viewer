@@ -314,50 +314,27 @@ async def ca_status():
             "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
         }
 
-    # Try a real caget on a benign PV to confirm network reachability.
-    # Use a short timeout — if no IOC answers in 1 s we report connectivity failure.
-    loop = asyncio.get_running_loop()
-    def _probe():
-        # Pick first configured PV from any station, or fall back to a dummy name.
-        data = load_snapshots()
-        test_pv = None
-        for station_pvs in data.get("stations", {}).values():
-            for entry in station_pvs:
-                pv = entry.get("pv", "")
-                if pv:
-                    test_pv = pv + ".VAL"
-                    break
-            if test_pv:
-                break
-        if not test_pv:
-            return None, "no_pvs_configured"
-        val = epics.caget(test_pv, timeout=3.0, use_monitor=False)
-        return val, test_pv
+    # Check the subscription cache — if any PV has a non-None value, CA is working.
+    from snapshot_ca import _cache, _pv_objects
+    n_subscribed = len(_pv_objects)
+    n_connected  = sum(1 for v in _cache.values() if v is not None)
 
-    try:
-        val, test_pv = await loop.run_in_executor(None, _probe)
-        if test_pv == "no_pvs_configured":
-            return {
-                "ok": True, "version": version, "ca_connected": None,
-                "note": "pyepics imported; no PVs configured yet to test connectivity",
-                "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
-            }
-        ca_ok = val is not None
+    if n_subscribed == 0:
         return {
-            "ok": True, "version": version,
-            "ca_connected": ca_ok,
-            "test_pv": test_pv, "test_val": val,
-            "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
-            **({"hint": f"pyepics installed but caget({test_pv!r}) returned None. "
-                        "Set EPICS_CA_ADDR_LIST in the service environment and restart."
-               } if not ca_ok else {}),
-        }
-    except Exception as exc:
-        return {
-            "ok": True, "version": version, "ca_connected": False,
-            "error": str(exc),
+            "ok": True, "version": version, "ca_connected": None,
+            "note": "No PVs configured yet.",
             "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
         }
+
+    ca_ok = n_connected > 0
+    return {
+        "ok": True, "version": version,
+        "ca_connected": ca_ok,
+        "subscribed": n_subscribed, "connected": n_connected,
+        "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
+        **({"hint": "EPICS_CA_ADDR_LIST may be wrong or IOCs are unreachable."
+           } if not ca_ok else {}),
+    }
 
 
 @app.get("/api/snapshots/config")
