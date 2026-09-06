@@ -504,6 +504,7 @@ export default function SnapshotTab({ annotationPassword }) {
   const stationNames = Object.keys(stationsCfg).sort();
 
   return (
+    <>
     <div className="flex flex-col h-full">
       {/* ── Top bar ── */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-white shrink-0 flex-wrap">
@@ -694,5 +695,6 @@ export default function SnapshotTab({ annotationPassword }) {
         onConfirm={pw => deleteSnapshot(deleteTarget.id, pw)}
         onClose={() => setDeleteTarget(null)} />
     )}
+    </>
   );
 }
