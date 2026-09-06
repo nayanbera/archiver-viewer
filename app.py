@@ -275,13 +275,64 @@ def save_snapshots(data: dict) -> None:
 
 @app.get("/api/snapshots/ca-status")
 async def ca_status():
-    """Check whether pyepics is importable on this server."""
+    """Check pyepics import AND actual CA connectivity."""
+    import os
+    addr_list = os.environ.get("EPICS_CA_ADDR_LIST", "")
+    auto_addr = os.environ.get("EPICS_CA_AUTO_ADDR_LIST", "YES")
     try:
         import epics
-        return {"ok": True, "version": getattr(epics, "__version__", "unknown")}
+        version = getattr(epics, "__version__", "unknown")
     except ImportError as exc:
-        return {"ok": False, "error": str(exc),
-                "hint": "Run: pip install pyepics  in the archiver-viewer conda environment, then restart the service."}
+        return {
+            "ok": False, "error": str(exc),
+            "hint": "Run: pip install pyepics  in the archiver-viewer conda environment, then restart the service.",
+            "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
+        }
+
+    # Try a real caget on a benign PV to confirm network reachability.
+    # Use a short timeout — if no IOC answers in 1 s we report connectivity failure.
+    loop = asyncio.get_running_loop()
+    def _probe():
+        # Pick first configured PV from any station, or fall back to a dummy name.
+        data = load_snapshots()
+        test_pv = None
+        for station_pvs in data.get("stations", {}).values():
+            for entry in station_pvs:
+                pv = entry.get("pv", "")
+                if pv:
+                    test_pv = pv + ".VAL"
+                    break
+            if test_pv:
+                break
+        if not test_pv:
+            return None, "no_pvs_configured"
+        val = epics.caget(test_pv, timeout=1.5, use_monitor=False)
+        return val, test_pv
+
+    try:
+        val, test_pv = await loop.run_in_executor(None, _probe)
+        if test_pv == "no_pvs_configured":
+            return {
+                "ok": True, "version": version, "ca_connected": None,
+                "note": "pyepics imported; no PVs configured yet to test connectivity",
+                "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
+            }
+        ca_ok = val is not None
+        return {
+            "ok": True, "version": version,
+            "ca_connected": ca_ok,
+            "test_pv": test_pv, "test_val": val,
+            "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
+            **({"hint": f"pyepics installed but caget({test_pv!r}) returned None. "
+                        "Set EPICS_CA_ADDR_LIST in the service environment and restart."
+               } if not ca_ok else {}),
+        }
+    except Exception as exc:
+        return {
+            "ok": True, "version": version, "ca_connected": False,
+            "error": str(exc),
+            "epics_ca_addr_list": addr_list, "epics_ca_auto_addr_list": auto_addr,
+        }
 
 
 @app.get("/api/snapshots/config")

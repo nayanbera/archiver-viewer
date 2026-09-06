@@ -493,9 +493,28 @@ export default function SnapshotTab({ annotationPassword }) {
           )}
         </div>
       )}
-      {caStatus && caStatus.ok && (
+      {caStatus && caStatus.ok && caStatus.ca_connected === false && (
+        <div className="px-4 py-2 bg-orange-50 border-b border-orange-200 text-orange-800 text-xs shrink-0">
+          <span className="font-bold">⚠ pyepics {caStatus.version} installed but cannot reach IOCs</span>
+          {caStatus.test_pv && <span className="ml-2 font-mono">(tested: {caStatus.test_pv})</span>}
+          <span className="block mt-0.5">
+            EPICS_CA_ADDR_LIST={caStatus.epics_ca_addr_list || <em>not set</em>} &nbsp;|&nbsp;
+            EPICS_CA_AUTO_ADDR_LIST={caStatus.epics_ca_auto_addr_list || 'YES'}
+          </span>
+          <span className="block mt-0.5 italic">
+            Add <code>Environment="EPICS_CA_ADDR_LIST=&lt;subnet&gt;"</code> to the systemd service unit and restart.
+          </span>
+        </div>
+      )}
+      {caStatus && caStatus.ok && caStatus.ca_connected === true && (
         <div className="px-4 py-1 bg-green-50 border-b border-green-200 text-green-700 text-xs shrink-0">
-          ✓ pyepics {caStatus.version} — CA ready
+          ✓ pyepics {caStatus.version} — CA connected
+          {caStatus.test_pv && <span className="ml-2 font-mono opacity-60">(tested: {caStatus.test_pv} = {caStatus.test_val})</span>}
+        </div>
+      )}
+      {caStatus && caStatus.ok && caStatus.ca_connected === null && (
+        <div className="px-4 py-1 bg-green-50 border-b border-green-200 text-green-700 text-xs shrink-0">
+          ✓ pyepics {caStatus.version} — CA ready (configure PVs to test connectivity)
         </div>
       )}
 
