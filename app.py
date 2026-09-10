@@ -273,6 +273,7 @@ async def save_config(request: Request):
 # ---------------------------------------------------------------------------
 
 SNAPSHOT_PATH = Path(os.getenv("SNAPSHOT_PATH", "config/snapshots.json"))
+log.info("SNAPSHOT_PATH = %s (exists: %s)", SNAPSHOT_PATH.resolve(), SNAPSHOT_PATH.exists())
 
 DEFAULT_SNAPSHOT_CONFIG: dict[str, Any] = {
     "stations": {},   # { stationName: { pvs: [ {pv, fields: [".VAL", ...]} ] } }
@@ -292,6 +293,7 @@ def load_snapshots() -> dict:
 def save_snapshots(data: dict) -> None:
     SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_PATH.write_text(json.dumps(data, indent=2))
+    log.info("Saved snapshots to %s", SNAPSHOT_PATH.resolve())
 
 
 # ---------------------------------------------------------------------------
