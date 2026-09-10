@@ -83,6 +83,18 @@ function StationConfigurator({ station, config, onSave }) {
     })
   );
 
+  const toggleAllFields = (pv) => setPvs(prev =>
+    prev.map(e => e.pv !== pv ? e : {
+      ...e,
+      fields: e.fields.length === allFields.length ? [] : [...allFields],
+    })
+  );
+
+  const allChecked = pvs.every(e => e.fields.length === allFields.length);
+  const toggleAllPVsAllFields = () => setPvs(prev =>
+    prev.map(e => ({ ...e, fields: allChecked ? [] : [...allFields] }))
+  );
+
   const save = async () => {
     setSaving(true); setMsg('');
     try { await onSave({ pvs, customFields }); setMsg('Saved.'); }
@@ -112,7 +124,15 @@ function StationConfigurator({ station, config, onSave }) {
           <table className="text-xs w-full border-collapse">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-2 py-1.5 font-semibold text-gray-600 w-48">PV</th>
+                <th className="text-left px-2 py-1.5 font-semibold text-gray-600 w-48">
+                  <div className="flex items-center gap-1">
+                    <input type="checkbox" checked={allChecked}
+                      onChange={toggleAllPVsAllFields}
+                      title="Select/deselect all fields for all PVs"
+                      className="accent-blue-600 cursor-pointer" />
+                    <span>PV</span>
+                  </div>
+                </th>
                 {DEFAULT_FIELDS.map(f => (
                   <th key={f} className="px-1 py-1.5 font-mono text-gray-500 text-center"
                       title={READONLY_FIELDS.has(f) ? `${f} (read-only)` : f}>
@@ -134,7 +154,14 @@ function StationConfigurator({ station, config, onSave }) {
               {pvs.map(entry => (
                 <tr key={entry.pv} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-2 py-1 font-mono text-gray-700 truncate max-w-[12rem]" title={entry.pv}>
-                    {entry.pv}
+                    <div className="flex items-center gap-1">
+                      <input type="checkbox"
+                        checked={entry.fields.length === allFields.length}
+                        onChange={() => toggleAllFields(entry.pv)}
+                        title="Select/deselect all fields for this PV"
+                        className="accent-blue-600 cursor-pointer flex-shrink-0" />
+                      <span className="truncate">{entry.pv}</span>
+                    </div>
                   </td>
                   {allFields.map(f => (
                     <td key={f} className="px-1 py-1 text-center">
