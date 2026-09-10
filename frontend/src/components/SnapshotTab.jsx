@@ -542,7 +542,19 @@ export default function SnapshotTab({ annotationPassword }) {
 
   const saveStationConfig = async ({ pvs, newCustomFields }) => {
     const cf = newCustomFields !== undefined ? newCustomFields : customFields;
-    const updatedStations = { ...stationsCfg, [station]: { pvs } };
+    // Fields added or removed globally — propagate to all OTHER stations' PVs
+    const added   = cf.filter(f => !customFields.includes(f));
+    const removed = customFields.filter(f => !cf.includes(f));
+    const updatedStations = Object.fromEntries(
+      Object.entries({ ...stationsCfg, [station]: { pvs } }).map(([st, cfg]) => {
+        if (st === station) return [st, { pvs }];
+        const updatedPvs = (cfg.pvs || []).map(e => ({
+          ...e,
+          fields: [...e.fields.filter(f => !removed.includes(f)), ...added.filter(f => !e.fields.includes(f))],
+        }));
+        return [st, { ...cfg, pvs: updatedPvs }];
+      })
+    );
     const r = await fetch('/api/snapshots/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
