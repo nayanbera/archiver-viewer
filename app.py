@@ -276,8 +276,9 @@ SNAPSHOT_PATH = Path(os.getenv("SNAPSHOT_PATH", "config/snapshots.json"))
 log.info("SNAPSHOT_PATH = %s (exists: %s)", SNAPSHOT_PATH.resolve(), SNAPSHOT_PATH.exists())
 
 DEFAULT_SNAPSHOT_CONFIG: dict[str, Any] = {
-    "stations": {},   # { stationName: { pvs: [ {pv, fields: [".VAL", ...]} ] } }
-    "snapshots": [],  # [ {id, name, station, created_at, values: {pvfield: val}} ]
+    "customFields": [],  # global extra fields shared across all stations e.g. [".PREC"]
+    "stations": {},      # { stationName: { pvs: [ {pv, fields: [".VAL", ...]} ] } }
+    "snapshots": [],     # [ {id, name, station, created_at, values: {pvfield: val}} ]
 }
 
 
@@ -341,18 +342,20 @@ async def ca_status():
 
 @app.get("/api/snapshots/config")
 async def get_snapshot_config():
-    """Return the per-station PV configuration."""
-    return load_snapshots()["stations"]
+    """Return station config and global custom fields."""
+    data = load_snapshots()
+    return {"stations": data.get("stations", {}), "customFields": data.get("customFields", [])}
 
 
 @app.post("/api/snapshots/config")
 async def save_snapshot_config(request: Request):
-    """Replace the per-station PV configuration and refresh CA subscriptions."""
+    """Replace station config + global custom fields and refresh CA subscriptions."""
     import threading
     from snapshot_ca import update_subscriptions
     body = await request.json()
     data = load_snapshots()
-    data["stations"] = body
+    data["stations"] = body.get("stations", body)  # backward compat: body may be just stations dict
+    data["customFields"] = body.get("customFields", data.get("customFields", []))
     save_snapshots(data)
     pvfs = _all_configured_pvfields()
     threading.Thread(target=update_subscriptions, args=(pvfs,), daemon=True).start()

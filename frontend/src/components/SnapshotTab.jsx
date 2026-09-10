@@ -26,26 +26,24 @@ function diffColor(snap, live) {
 
 // ── Station configurator ───────────────────────────────────────────────────
 
-function StationConfigurator({ station, config, onSave }) {
-  const [pvs, setPvs] = useState(() =>
+function StationConfigurator({ station, config, customFields, onSave }) {
+  const [pvs,      setPvs]      = useState(() =>
     (config?.pvs || []).map(e => ({ ...e, fields: e.fields || DEFAULT_FIELDS }))
   );
-  const [customFields, setCustomFields] = useState(() => config?.customFields || []);
-  const [newPV,        setNewPV]        = useState('');
-  const [newField,     setNewField]     = useState('');
-  const [saving,       setSaving]       = useState(false);
-  const [msg,          setMsg]          = useState('');
+  const [newPV,    setNewPV]    = useState('');
+  const [newField, setNewField] = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [msg,      setMsg]      = useState('');
 
   useEffect(() => {
     setPvs((config?.pvs || []).map(e => ({ ...e, fields: e.fields || DEFAULT_FIELDS })));
-    setCustomFields(config?.customFields || []);
   }, [station, config]);
 
   const allFields = [...DEFAULT_FIELDS, ...customFields];
 
   const autoSave = async (newPvs, newCustomFields) => {
     setSaving(true); setMsg('');
-    try { await onSave({ pvs: newPvs, customFields: newCustomFields }); setMsg('Saved.'); }
+    try { await onSave({ pvs: newPvs, newCustomFields }); setMsg('Saved.'); }
     catch (e) { setMsg(`Error: ${e.message}`); }
     finally { setSaving(false); }
   };
@@ -56,13 +54,13 @@ function StationConfigurator({ station, config, onSave }) {
     const updated = [...pvs, { pv, fields: [...allFields] }];
     setPvs(updated);
     setNewPV('');
-    autoSave(updated, customFields);
+    autoSave(updated, undefined);
   };
 
   const removePV = (pv) => {
     const updated = pvs.filter(e => e.pv !== pv);
     setPvs(updated);
-    autoSave(updated, customFields);
+    autoSave(updated, undefined);
   };
 
   const addField = () => {
@@ -72,7 +70,6 @@ function StationConfigurator({ station, config, onSave }) {
     if (allFields.includes(f)) { setNewField(''); return; }
     const newCustom = [...customFields, f];
     const newPvs = pvs.map(e => ({ ...e, fields: [...e.fields, f] }));
-    setCustomFields(newCustom);
     setPvs(newPvs);
     setNewField('');
     autoSave(newPvs, newCustom);
@@ -81,7 +78,6 @@ function StationConfigurator({ station, config, onSave }) {
   const removeCustomField = (f) => {
     const newCustom = customFields.filter(x => x !== f);
     const newPvs = pvs.map(e => ({ ...e, fields: e.fields.filter(x => x !== f) }));
-    setCustomFields(newCustom);
     setPvs(newPvs);
     autoSave(newPvs, newCustom);
   };
@@ -94,7 +90,7 @@ function StationConfigurator({ station, config, onSave }) {
         : [...e.fields, field],
     });
     setPvs(updated);
-    autoSave(updated, customFields);
+    autoSave(updated, undefined);
   };
 
   const toggleAllFields = (pv) => {
@@ -103,14 +99,14 @@ function StationConfigurator({ station, config, onSave }) {
       fields: e.fields.length === allFields.length ? [] : [...allFields],
     });
     setPvs(updated);
-    autoSave(updated, customFields);
+    autoSave(updated, undefined);
   };
 
   const allChecked = pvs.every(e => e.fields.length === allFields.length);
   const toggleAllPVsAllFields = () => {
     const updated = pvs.map(e => ({ ...e, fields: allChecked ? [] : [...allFields] }));
     setPvs(updated);
-    autoSave(updated, customFields);
+    autoSave(updated, undefined);
   };
 
   return (
@@ -404,8 +400,9 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
 // ── Main SnapshotTab ───────────────────────────────────────────────────────
 
 export default function SnapshotTab({ annotationPassword }) {
-  const [stationsCfg,  setStationsCfg]  = useState({});
-  const [station,      setStation]      = useState('');
+  const [stationsCfg,   setStationsCfg]   = useState({});
+  const [customFields,  setCustomFields]  = useState([]);
+  const [station,       setStation]       = useState('');
   const [snapshots,    setSnapshots]    = useState([]);
   const [activeSnap,   setActiveSnap]   = useState(null);
   const [liveValues,   setLiveValues]   = useState({});
@@ -425,8 +422,10 @@ export default function SnapshotTab({ annotationPassword }) {
     fetch('/api/snapshots/config')
       .then(r => r.json())
       .then(d => {
-        setStationsCfg(d || {});
-        const first = Object.keys(d || {})[0] || '';
+        const stations = d?.stations || {};
+        setStationsCfg(stations);
+        setCustomFields(d?.customFields || []);
+        const first = Object.keys(stations)[0] || '';
         setStation(first);
       });
     fetch('/api/snapshots/ca-status')
@@ -541,15 +540,17 @@ export default function SnapshotTab({ annotationPassword }) {
     }
   };
 
-  const saveStationConfig = async ({ pvs, customFields }) => {
-    const updated = { ...stationsCfg, [station]: { pvs, customFields: customFields || [] } };
+  const saveStationConfig = async ({ pvs, newCustomFields }) => {
+    const cf = newCustomFields !== undefined ? newCustomFields : customFields;
+    const updatedStations = { ...stationsCfg, [station]: { pvs } };
     const r = await fetch('/api/snapshots/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated),
+      body: JSON.stringify({ stations: updatedStations, customFields: cf }),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    setStationsCfg(updated);
+    setStationsCfg(updatedStations);
+    if (newCustomFields !== undefined) setCustomFields(newCustomFields);
   };
 
   const addStation = () => {
@@ -694,6 +695,7 @@ export default function SnapshotTab({ annotationPassword }) {
                   key={station}
                   station={station}
                   config={stationsCfg[station]}
+                  customFields={customFields}
                   onSave={saveStationConfig} />
               </div>
             ) : (
