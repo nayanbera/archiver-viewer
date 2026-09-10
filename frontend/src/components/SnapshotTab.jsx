@@ -30,13 +30,18 @@ function StationConfigurator({ station, config, onSave }) {
   const [pvs, setPvs] = useState(() =>
     (config?.pvs || []).map(e => ({ ...e, fields: e.fields || DEFAULT_FIELDS }))
   );
-  const [newPV, setNewPV] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [msg,    setMsg]    = useState('');
+  const [customFields, setCustomFields] = useState(() => config?.customFields || []);
+  const [newPV,        setNewPV]        = useState('');
+  const [newField,     setNewField]     = useState('');
+  const [saving,       setSaving]       = useState(false);
+  const [msg,          setMsg]          = useState('');
 
   useEffect(() => {
     setPvs((config?.pvs || []).map(e => ({ ...e, fields: e.fields || DEFAULT_FIELDS })));
+    setCustomFields(config?.customFields || []);
   }, [station, config]);
+
+  const allFields = [...DEFAULT_FIELDS, ...customFields];
 
   const addPV = () => {
     const pv = newPV.trim();
@@ -49,9 +54,23 @@ function StationConfigurator({ station, config, onSave }) {
     const updated = pvs.filter(e => e.pv !== pv);
     setPvs(updated);
     setSaving(true); setMsg('');
-    try { await onSave(updated); setMsg('Saved.'); }
+    try { await onSave({ pvs: updated, customFields }); setMsg('Saved.'); }
     catch (e) { setMsg(`Error: ${e.message}`); }
     finally { setSaving(false); }
+  };
+
+  const addField = () => {
+    let f = newField.trim();
+    if (!f) return;
+    if (!f.startsWith('.')) f = '.' + f;
+    if (allFields.includes(f)) { setNewField(''); return; }
+    setCustomFields(prev => [...prev, f]);
+    setNewField('');
+  };
+
+  const removeCustomField = (f) => {
+    setCustomFields(prev => prev.filter(x => x !== f));
+    setPvs(prev => prev.map(e => ({ ...e, fields: e.fields.filter(x => x !== f) })));
   };
 
   const toggleField = (pv, field) => setPvs(prev =>
@@ -65,7 +84,7 @@ function StationConfigurator({ station, config, onSave }) {
 
   const save = async () => {
     setSaving(true); setMsg('');
-    try { await onSave(pvs); setMsg('Saved.'); }
+    try { await onSave({ pvs, customFields }); setMsg('Saved.'); }
     catch (e) { setMsg(`Error: ${e.message}`); }
     finally { setSaving(false); }
   };
@@ -80,7 +99,7 @@ function StationConfigurator({ station, config, onSave }) {
           className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400 font-mono" />
         <button onClick={addPV} disabled={!newPV.trim()}
           className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40">
-          Add
+          Add PV
         </button>
       </div>
 
@@ -100,6 +119,13 @@ function StationConfigurator({ station, config, onSave }) {
                     {READONLY_FIELDS.has(f) && <span className="text-[9px] text-gray-400">ro</span>}
                   </th>
                 ))}
+                {customFields.map(f => (
+                  <th key={f} className="px-1 py-1.5 font-mono text-purple-600 text-center">
+                    {f}<br/>
+                    <button onClick={() => removeCustomField(f)}
+                      className="text-[9px] text-red-400 hover:text-red-600 leading-none">✕</button>
+                  </th>
+                ))}
                 <th className="w-6"></th>
               </tr>
             </thead>
@@ -109,7 +135,7 @@ function StationConfigurator({ station, config, onSave }) {
                   <td className="px-2 py-1 font-mono text-gray-700 truncate max-w-[12rem]" title={entry.pv}>
                     {entry.pv}
                   </td>
-                  {DEFAULT_FIELDS.map(f => (
+                  {allFields.map(f => (
                     <td key={f} className="px-1 py-1 text-center">
                       <input type="checkbox"
                         checked={entry.fields.includes(f)}
@@ -127,6 +153,19 @@ function StationConfigurator({ station, config, onSave }) {
           </table>
         </div>
       )}
+
+      {/* Add custom field */}
+      <div className="flex gap-2 items-center">
+        <span className="text-xs text-gray-500">Add field:</span>
+        <input value={newField} onChange={e => setNewField(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addField()}
+          placeholder=".PREC"
+          className="w-24 text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-purple-400 font-mono" />
+        <button onClick={addField} disabled={!newField.trim()}
+          className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded disabled:opacity-40">
+          Add Field
+        </button>
+      </div>
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving}
@@ -469,8 +508,8 @@ export default function SnapshotTab({ annotationPassword }) {
     }
   };
 
-  const saveStationConfig = async (pvs) => {
-    const updated = { ...stationsCfg, [station]: { pvs } };
+  const saveStationConfig = async ({ pvs, customFields }) => {
+    const updated = { ...stationsCfg, [station]: { pvs, customFields: customFields || [] } };
     const r = await fetch('/api/snapshots/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
