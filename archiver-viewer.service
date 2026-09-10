@@ -21,7 +21,9 @@ KillMode=mixed
 Environment="PORT=8091"
 Environment="ARCHIVER_MGMT_URL=http://164.54.169.92:17665"
 Environment="ARCHIVER_RETRIEVAL_URL=http://164.54.169.92:17668"
-Environment="CONFIG_PATH=/usr/local/epics/archiver-viewer/config/overrides.json"
+# Persistent data — outside the repo so git pull never overwrites user config/snapshots
+Environment="CONFIG_PATH=/var/lib/archiver-viewer/overrides.json"
+Environment="SNAPSHOT_PATH=/var/lib/archiver-viewer/snapshots.json"
 
 # Logging goes to journald (use: journalctl -u archiver-viewer -f)
 StandardOutput=journal
