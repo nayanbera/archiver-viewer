@@ -43,20 +43,26 @@ function StationConfigurator({ station, config, onSave }) {
 
   const allFields = [...DEFAULT_FIELDS, ...customFields];
 
+  const autoSave = async (newPvs, newCustomFields) => {
+    setSaving(true); setMsg('');
+    try { await onSave({ pvs: newPvs, customFields: newCustomFields }); setMsg('Saved.'); }
+    catch (e) { setMsg(`Error: ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
   const addPV = () => {
     const pv = newPV.trim();
     if (!pv || pvs.some(e => e.pv === pv)) return;
-    setPvs(prev => [...prev, { pv, fields: [...allFields] }]);
+    const updated = [...pvs, { pv, fields: [...allFields] }];
+    setPvs(updated);
     setNewPV('');
+    autoSave(updated, customFields);
   };
 
-  const removePV = async pv => {
+  const removePV = (pv) => {
     const updated = pvs.filter(e => e.pv !== pv);
     setPvs(updated);
-    setSaving(true); setMsg('');
-    try { await onSave({ pvs: updated, customFields }); setMsg('Saved.'); }
-    catch (e) { setMsg(`Error: ${e.message}`); }
-    finally { setSaving(false); }
+    autoSave(updated, customFields);
   };
 
   const addField = () => {
@@ -64,42 +70,47 @@ function StationConfigurator({ station, config, onSave }) {
     if (!f) return;
     if (!f.startsWith('.')) f = '.' + f;
     if (allFields.includes(f)) { setNewField(''); return; }
-    setCustomFields(prev => [...prev, f]);
-    setPvs(prev => prev.map(e => ({ ...e, fields: [...e.fields, f] })));
+    const newCustom = [...customFields, f];
+    const newPvs = pvs.map(e => ({ ...e, fields: [...e.fields, f] }));
+    setCustomFields(newCustom);
+    setPvs(newPvs);
     setNewField('');
+    autoSave(newPvs, newCustom);
   };
 
   const removeCustomField = (f) => {
-    setCustomFields(prev => prev.filter(x => x !== f));
-    setPvs(prev => prev.map(e => ({ ...e, fields: e.fields.filter(x => x !== f) })));
+    const newCustom = customFields.filter(x => x !== f);
+    const newPvs = pvs.map(e => ({ ...e, fields: e.fields.filter(x => x !== f) }));
+    setCustomFields(newCustom);
+    setPvs(newPvs);
+    autoSave(newPvs, newCustom);
   };
 
-  const toggleField = (pv, field) => setPvs(prev =>
-    prev.map(e => e.pv !== pv ? e : {
+  const toggleField = (pv, field) => {
+    const updated = pvs.map(e => e.pv !== pv ? e : {
       ...e,
       fields: e.fields.includes(field)
         ? e.fields.filter(f => f !== field)
         : [...e.fields, field],
-    })
-  );
+    });
+    setPvs(updated);
+    autoSave(updated, customFields);
+  };
 
-  const toggleAllFields = (pv) => setPvs(prev =>
-    prev.map(e => e.pv !== pv ? e : {
+  const toggleAllFields = (pv) => {
+    const updated = pvs.map(e => e.pv !== pv ? e : {
       ...e,
       fields: e.fields.length === allFields.length ? [] : [...allFields],
-    })
-  );
+    });
+    setPvs(updated);
+    autoSave(updated, customFields);
+  };
 
   const allChecked = pvs.every(e => e.fields.length === allFields.length);
-  const toggleAllPVsAllFields = () => setPvs(prev =>
-    prev.map(e => ({ ...e, fields: allChecked ? [] : [...allFields] }))
-  );
-
-  const save = async () => {
-    setSaving(true); setMsg('');
-    try { await onSave({ pvs, customFields }); setMsg('Saved.'); }
-    catch (e) { setMsg(`Error: ${e.message}`); }
-    finally { setSaving(false); }
+  const toggleAllPVsAllFields = () => {
+    const updated = pvs.map(e => ({ ...e, fields: allChecked ? [] : [...allFields] }));
+    setPvs(updated);
+    autoSave(updated, customFields);
   };
 
   return (
@@ -195,13 +206,7 @@ function StationConfigurator({ station, config, onSave }) {
         </button>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button onClick={save} disabled={saving}
-          className="text-sm px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40">
-          {saving ? 'Saving…' : 'Save Configuration'}
-        </button>
-        {msg && <span className={`text-xs ${msg.startsWith('Error') ? 'text-red-500' : 'text-green-600'}`}>{msg}</span>}
-      </div>
+      {msg && <p className={`text-xs ${msg.startsWith('Error') ? 'text-red-500' : 'text-green-600'}`}>{saving ? 'Saving…' : msg}</p>}
     </div>
   );
 }
