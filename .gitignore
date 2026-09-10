@@ -13,3 +13,5 @@ Thumbs.db
 .idea/
 .vscode/
 frontend/node_modules/
+config/overrides.json
+config/snapshots.json
