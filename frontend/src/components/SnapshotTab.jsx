@@ -46,7 +46,7 @@ function StationConfigurator({ station, config, onSave }) {
   const addPV = () => {
     const pv = newPV.trim();
     if (!pv || pvs.some(e => e.pv === pv)) return;
-    setPvs(prev => [...prev, { pv, fields: [...DEFAULT_FIELDS] }]);
+    setPvs(prev => [...prev, { pv, fields: [...allFields] }]);
     setNewPV('');
   };
 
