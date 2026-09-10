@@ -65,6 +65,7 @@ function StationConfigurator({ station, config, onSave }) {
     if (!f.startsWith('.')) f = '.' + f;
     if (allFields.includes(f)) { setNewField(''); return; }
     setCustomFields(prev => [...prev, f]);
+    setPvs(prev => prev.map(e => ({ ...e, fields: [...e.fields, f] })));
     setNewField('');
   };
 
