@@ -49,9 +49,11 @@ function StationConfigurator({ station, config, customFields, onSave }) {
   };
 
   const addPV = () => {
-    const pv = newPV.trim();
-    if (!pv || pvs.some(e => e.pv === pv)) return;
-    const updated = [...pvs, { pv, fields: [...allFields] }];
+    const tokens = newPV.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    if (!tokens.length) return;
+    const toAdd = tokens.filter(pv => !pvs.some(e => e.pv === pv));
+    if (!toAdd.length) { setNewPV(''); return; }
+    const updated = [...pvs, ...toAdd.map(pv => ({ pv, fields: [...allFields] }))];
     setPvs(updated);
     setNewPV('');
     autoSave(updated, undefined);
@@ -64,12 +66,15 @@ function StationConfigurator({ station, config, customFields, onSave }) {
   };
 
   const addField = () => {
-    let f = newField.trim();
-    if (!f) return;
-    if (!f.startsWith('.')) f = '.' + f;
-    if (allFields.includes(f)) { setNewField(''); return; }
-    const newCustom = [...customFields, f];
-    const newPvs = pvs.map(e => ({ ...e, fields: [...e.fields, f] }));
+    const tokens = newField.split(/[\s,]+/).map(s => {
+      const t = s.trim();
+      return t ? (t.startsWith('.') ? t : '.' + t) : null;
+    }).filter(Boolean);
+    if (!tokens.length) return;
+    const toAdd = tokens.filter(f => !allFields.includes(f));
+    if (!toAdd.length) { setNewField(''); return; }
+    const newCustom = [...customFields, ...toAdd];
+    const newPvs = pvs.map(e => ({ ...e, fields: [...e.fields, ...toAdd] }));
     setPvs(newPvs);
     setNewField('');
     autoSave(newPvs, newCustom);
@@ -115,7 +120,7 @@ function StationConfigurator({ station, config, customFields, onSave }) {
       <div className="flex gap-2">
         <input value={newPV} onChange={e => setNewPV(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addPV()}
-          placeholder="Add PV (e.g. 15IDA:m1)"
+          placeholder="Add PVs (e.g. 15IDA:m1, 15IDA:m2)"
           className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-400 font-mono" />
         <button onClick={addPV} disabled={!newPV.trim()}
           className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40">
@@ -194,7 +199,7 @@ function StationConfigurator({ station, config, customFields, onSave }) {
         <span className="text-xs text-gray-500">Add field:</span>
         <input value={newField} onChange={e => setNewField(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addField()}
-          placeholder=".PREC"
+          placeholder=".PREC, .DRVH"
           className="w-24 text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-purple-400 font-mono" />
         <button onClick={addField} disabled={!newField.trim()}
           className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded disabled:opacity-40">
