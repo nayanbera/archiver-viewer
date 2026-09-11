@@ -38,6 +38,23 @@ Browse PVs grouped by experimental station and device, select multiple PVs, and 
 - **Edit** (✏) and **Delete** (✕) buttons appear on hover; both require the annotation password if one is set
 - Password management via the 🔓/🔒 icon in the panel header (set, change, or remove the password without editing JSON)
 
+### Snapshots tab
+
+Save and restore motor/PV positions across sessions.
+
+- **Stations** — create named stations (e.g. "Hutch A", "Diffractometer"), each with its own PV list
+- **Add PVs** — type one or more PV base names separated by commas or spaces (e.g. `15IDA:m1, 15IDA:m2`)
+- **Fields** — default set: `.VAL .RBV .OFF .LLM .HLM .VELO .VBAS .ACCL .BDST .BVEL .MRES .ERES .RDBD .EGU .DESC`; tick/untick per PV; select-all checkbox per row and globally
+- **Custom fields** — add extra fields (e.g. `.PREC .DRVH`) shared across all stations; multiple fields comma/space separated; removing a custom field unchecks it everywhere
+- **Auto-save** — all configuration changes save immediately to disk
+- **Take snapshot** — captures current live CA values for all configured PVs into a named snapshot
+- **Compare** — side-by-side Snapshot vs Live table, colour-coded (green = match, yellow = small diff, red = large diff); auto-refreshes every 5 s
+  - **Filter** — search box narrows the table by PV name; select-all and Restore apply only to visible rows
+- **Restore** — write snapshot values back to EPICS; password-protected (reuses annotation password); per-row checkboxes allow partial restore
+- **Delete** — password-protected confirmation modal
+- **CA status banner** — shows pyepics version and how many subscribed PVs are live
+- Read-only fields (`.RBV`, `.RRBV`, `.RRES`) are shown but never written on restore
+
 ### Other
 - **AA Viewer tab** — original Archiver Appliance iframe is preserved and accessible via the Plotly / AA Viewer toggle
 - **⊞ Groups** — rename stations, reassign non-standard PVs, tag device types
@@ -97,13 +114,21 @@ Press **Ctrl+C** to stop.
 
 ### Step 4 — Install as a systemd service (auto-start on boot)
 
-**4a. Edit `archiver-viewer.service`** — update these lines to match your system:
+**4a. Create the persistent data directory** (survives `git pull` and re-clones):
+
+```bash
+sudo mkdir -p /var/lib/archiver-viewer
+sudo chown -R chem_epics:chem_epics /var/lib/archiver-viewer
+```
+
+**4b. Edit `archiver-viewer.service`** — update these lines to match your system:
 
 ```ini
-User=chem_epics                                                                    # Linux user that runs the app
-WorkingDirectory=/usr/local/epics/archiver-viewer                                  # full path to the cloned repo
-ExecStart=/home/chem_epics/anaconda3/envs/archiver-viewer/bin/python app.py       # Python inside the conda env
-Environment="CONFIG_PATH=/usr/local/epics/archiver-viewer/config/overrides.json"  # config file location
+User=chem_epics                                                                   # Linux user that runs the app
+WorkingDirectory=/usr/local/epics/archiver-viewer                                 # full path to the cloned repo
+ExecStart=/home/chem_epics/anaconda3/envs/archiver-viewer/bin/python app.py      # Python inside the conda env
+Environment="CONFIG_PATH=/var/lib/archiver-viewer/overrides.json"                # persistent config (outside repo)
+Environment="SNAPSHOT_PATH=/var/lib/archiver-viewer/snapshots.json"              # persistent snapshots (outside repo)
 ```
 
 Find the exact path to the conda env's Python with:
@@ -113,7 +138,7 @@ conda activate archiver-viewer
 which python
 ```
 
-**4b. Copy the repo and install the service:**
+**4c. Copy the repo and install the service:**
 
 ```bash
 # Copy repo to permanent location
@@ -141,12 +166,12 @@ You should see `Active: active (running)`.
 
 From the beamline machine:
 ```
-http://localhost:8080
+http://localhost:8091
 ```
 
 From another machine on the beamline network:
 ```
-http://<beamline-machine-hostname>:8080
+http://<beamline-machine-hostname>:8091
 ```
 
 ---
@@ -157,12 +182,15 @@ http://<beamline-machine-hostname>:8080
 
 Set in `archiver-viewer.service` (or exported before running manually):
 
-| Variable                  | Default                         | Description                        |
-|---------------------------|---------------------------------|------------------------------------|
-| `ARCHIVER_MGMT_URL`       | `http://164.54.169.92:17665`    | AA management port                 |
-| `ARCHIVER_RETRIEVAL_URL`  | `http://164.54.169.92:17668`    | AA retrieval port                  |
-| `PORT`                    | `8080`                          | HTTP port the app listens on       |
-| `CONFIG_PATH`             | `config/overrides.json`         | Path to the persistent config file |
+| Variable                  | Default                         | Description                              |
+|---------------------------|---------------------------------|------------------------------------------|
+| `ARCHIVER_MGMT_URL`       | `http://164.54.169.92:17665`    | AA management port                       |
+| `ARCHIVER_RETRIEVAL_URL`  | `http://164.54.169.92:17668`    | AA retrieval port                        |
+| `PORT`                    | `8091`                          | HTTP port the app listens on             |
+| `CONFIG_PATH`             | `config/overrides.json`         | Path to overrides/annotations config     |
+| `SNAPSHOT_PATH`           | `config/snapshots.json`         | Path to snapshot station config + data   |
+
+> **Important:** Set `CONFIG_PATH` and `SNAPSHOT_PATH` to paths **outside the repo** (e.g. `/var/lib/archiver-viewer/`) so that `git pull` never overwrites your saved station configuration, snapshots, or annotations.
 
 ### Config file (`overrides.json`)
 
@@ -213,6 +241,8 @@ cd /usr/local/epics/archiver-viewer
 git pull
 sudo systemctl restart archiver-viewer
 ```
+
+Your station configuration, snapshots, and annotations are stored in `/var/lib/archiver-viewer/` and are never touched by `git pull`.
 
 ---
 
