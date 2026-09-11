@@ -303,15 +303,28 @@ function RestoreModal({ snapName, selected, onConfirm, onClose, needsPassword })
 function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, onToggleAll, onRestore, annotationPassword }) {
   const [restoreModal, setRestoreModal] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
+  const [filter, setFilter] = useState('');
 
-  const rows = Object.entries(snapshot.values || {});
+  const allRows = Object.entries(snapshot.values || {});
+  const lc = filter.trim().toLowerCase();
+  const rows = lc ? allRows.filter(([pvf]) => pvf.toLowerCase().includes(lc)) : allRows;
+
   const writableRows = rows.filter(([pvf]) => !Array.from(READONLY_FIELDS).some(ro => pvf.endsWith(ro)));
   const allSel = writableRows.length > 0 && writableRows.every(([pvf]) => selected.has(pvf));
   const someSel = writableRows.some(([pvf]) => selected.has(pvf)) && !allSel;
 
+  const toggleAllVisible = () => {
+    const pvfs = writableRows.map(([pvf]) => pvf);
+    if (allSel) pvfs.forEach(pvf => selected.has(pvf) && onToggle(pvf));
+    else pvfs.forEach(pvf => !selected.has(pvf) && onToggle(pvf));
+  };
+
+  // Restore only the selected PVs that are also visible in the current filter
+  const visibleSelected = writableRows.filter(([pvf]) => selected.has(pvf));
+
   const doRestore = async (password) => {
     setRestoreModal(false);
-    const result = await onRestore(snapshot.id, [...selected], password);
+    const result = await onRestore(snapshot.id, visibleSelected.map(([pvf]) => pvf), password);
     setRestoreResult(result);
   };
 
@@ -322,12 +335,19 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
         <span className="text-xs text-gray-500">
           <strong>{snapshot.name}</strong> · {fmtDate(snapshot.created_at)}
         </span>
+        <input
+          value={filter} onChange={e => setFilter(e.target.value)}
+          placeholder="Filter PVs…"
+          className="text-xs border border-gray-300 rounded px-2 py-1 w-48 focus:outline-none focus:border-blue-400 font-mono" />
+        {filter && (
+          <button onClick={() => setFilter('')} className="text-xs text-gray-400 hover:text-gray-600">✕ clear</button>
+        )}
         <div className="flex-1" />
         {liveLoading && <span className="text-xs text-blue-500 animate-pulse">Refreshing live values…</span>}
         <button onClick={() => setRestoreModal(true)}
-          disabled={selected.size === 0}
+          disabled={visibleSelected.length === 0}
           className="text-xs px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-40 font-medium">
-          Restore {selected.size > 0 ? `${selected.size} selected` : ''}
+          Restore {visibleSelected.length > 0 ? `${visibleSelected.length} selected` : ''}
         </button>
       </div>
 
@@ -349,7 +369,8 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
               <th className="px-2 py-1.5 text-left">
                 <input type="checkbox" checked={allSel}
                   ref={el => { if (el) el.indeterminate = someSel; }}
-                  onChange={onToggleAll}
+                  onChange={toggleAllVisible}
+                  title="Select/deselect all visible writable PVs"
                   className="accent-blue-600 cursor-pointer" />
               </th>
               <th className="px-2 py-1.5 text-left font-semibold text-gray-600">PV · Field</th>
@@ -359,7 +380,9 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
             </tr>
           </thead>
           <tbody>
-            {rows.map(([pvf, snapVal]) => {
+            {rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-400 italic">No PVs match "{filter}"</td></tr>
+            ) : rows.map(([pvf, snapVal]) => {
               const liveVal = liveValues?.[pvf];
               const isRO = Array.from(READONLY_FIELDS).some(ro => pvf.endsWith(ro));
               const color = diffColor(snapVal, liveVal);
@@ -393,7 +416,7 @@ function CompareTable({ snapshot, liveValues, liveLoading, selected, onToggle, o
       {restoreModal && (
         <RestoreModal
           snapName={snapshot.name}
-          selected={selected.size}
+          selected={visibleSelected.length}
           needsPassword={!!annotationPassword}
           onConfirm={doRestore}
           onClose={() => setRestoreModal(false)} />
